@@ -1,0 +1,78 @@
+.favorite-button {
+  background: rgba(255, 255, 255, 0.8);
+  border: none;
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: all 0.3s ease;
+  box-shadow: 0 2px 5px rgba(0, 0, 0, 0.2);
+  padding: 0;
+}
+
+.favorite-button:hover {
+  background: rgba(255, 255, 255, 1);
+  transform: scale(1.1);
+}
+
+.favorite-button svg {
+  width: 24px;
+  height: 24px;
+  color: #888;
+  transition: color 0.3s ease, fill 0.3s ease, transform 0.3s ease;
+}
+
+.favorite-button.favorite-active svg {
+  color: #ff3b5c;
+  fill: #ff3b5c;
+  animation: heart-beat 0.35s ease-in-out;
+}
+
+.favorite-button:focus {
+  outline: none;
+}
+
+.loading-indicator {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.spinner {
+  animation: rotate 1s linear infinite;
+  width: 24px;
+  height: 24px;
+}
+
+.spinner circle {
+  stroke-dasharray: 60;
+  stroke-dashoffset: 20;
+  stroke-linecap: round;
+}
+
+@keyframes rotate {
+  100% {
+    transform: rotate(360deg);
+  }
+}
+
+@keyframes heart-beat {
+  0% {
+    transform: scale(1);
+  }
+  25% {
+    transform: scale(1.2);
+  }
+  50% {
+    transform: scale(0.95);
+  }
+  75% {
+    transform: scale(1.1);
+  }
+  100% {
+    transform: scale(1);
+  }
+} 

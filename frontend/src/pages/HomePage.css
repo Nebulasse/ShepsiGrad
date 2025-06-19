@@ -1,0 +1,284 @@
+/* Стили для главной страницы */
+.home-page {
+  width: 100%;
+  padding: 16px;
+  max-width: 600px;
+  margin: 0 auto;
+}
+
+/* Заголовок с приветствием и профилем */
+.home-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 20px;
+}
+
+.welcome-text h1 {
+  font-size: 24px;
+  margin: 0 0 5px 0;
+  color: #333;
+}
+
+.welcome-text p {
+  font-size: 16px;
+  margin: 0;
+  color: #666;
+}
+
+.profile-icon {
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  background-color: #0075FF;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: white;
+  text-decoration: none;
+}
+
+.avatar {
+  font-size: 18px;
+  font-weight: bold;
+}
+
+/* Поисковая строка */
+.search-container {
+  margin-bottom: 24px;
+}
+
+.search-bar {
+  display: flex;
+  align-items: center;
+  background-color: #F0F0F0;
+  padding: 10px 16px;
+  border-radius: 30px;
+  position: relative;
+}
+
+.search-icon {
+  margin-right: 10px;
+  color: #666;
+}
+
+.search-input {
+  flex: 1;
+  border: none;
+  background: transparent;
+  font-size: 16px;
+  outline: none;
+  padding: 5px 0;
+}
+
+/* Категории */
+.categories-section {
+  margin-bottom: 24px;
+}
+
+.section-header-with-link {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 16px;
+}
+
+.section-header-with-link h2 {
+  font-size: 20px;
+  margin: 0;
+  color: #333;
+}
+
+.see-all-link {
+  color: #0075FF;
+  text-decoration: none;
+  font-size: 14px;
+}
+
+.categories-row {
+  display: flex;
+  justify-content: space-between;
+  overflow-x: auto;
+  padding-bottom: 10px;
+}
+
+.category-item {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-decoration: none;
+  color: #333;
+  min-width: 70px;
+  margin-right: 12px;
+}
+
+.category-icon {
+  width: 60px;
+  height: 60px;
+  border-radius: 16px;
+  background-color: #E6F2FF;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin-bottom: 8px;
+  background-position: center;
+  background-repeat: no-repeat;
+  background-size: 30px;
+}
+
+.apartment-icon {
+  background-image: url('/images/icons/apartment.svg');
+}
+
+.house-icon {
+  background-image: url('/images/icons/house.svg');
+}
+
+.villa-icon {
+  background-image: url('/images/icons/villa.svg');
+}
+
+.hotel-icon {
+  background-image: url('/images/icons/hotel.svg');
+}
+
+/* Рекомендуемые и популярные объекты */
+.recommended-section,
+.popular-section {
+  margin-bottom: 24px;
+}
+
+.properties-scroll {
+  display: flex;
+  overflow-x: auto;
+  padding-bottom: 10px;
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+
+.properties-scroll::-webkit-scrollbar {
+  display: none;
+}
+
+.property-card-mobile {
+  min-width: 260px;
+  margin-right: 16px;
+  border-radius: 16px;
+  overflow: hidden;
+  background-color: white;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+}
+
+.property-card-mobile a {
+  text-decoration: none;
+  color: inherit;
+}
+
+.property-image-container {
+  position: relative;
+  height: 160px;
+}
+
+.property-image {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.property-type {
+  position: absolute;
+  top: 10px;
+  left: 10px;
+  background-color: rgba(0, 0, 0, 0.6);
+  color: white;
+  padding: 4px 8px;
+  border-radius: 4px;
+  font-size: 12px;
+}
+
+.property-rating {
+  position: absolute;
+  top: 10px;
+  left: 70px;
+  background-color: white;
+  color: #333;
+  padding: 4px 8px;
+  border-radius: 4px;
+  font-size: 12px;
+  font-weight: bold;
+}
+
+.property-info {
+  padding: 12px;
+}
+
+.property-title {
+  font-size: 16px;
+  margin: 0 0 8px 0;
+  color: #333;
+  font-weight: 500;
+}
+
+.property-location {
+  display: flex;
+  align-items: center;
+  font-size: 14px;
+  color: #666;
+  margin: 0 0 8px 0;
+}
+
+.location-icon {
+  margin-right: 4px;
+  color: #666;
+}
+
+.property-price {
+  font-size: 16px;
+  font-weight: bold;
+  color: #0075FF;
+  margin: 0;
+}
+
+.property-favorite {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  z-index: 10;
+}
+
+/* Стили для мобильных компонентов */
+.property-rating-mobile {
+  position: absolute;
+  top: 10px;
+  left: 70px;
+  background-color: white;
+  color: #333;
+  padding: 4px 8px;
+  border-radius: 4px;
+  font-size: 12px;
+  font-weight: bold;
+  z-index: 5;
+}
+
+.property-favorite-mobile {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  z-index: 10;
+}
+
+/* Адаптивность */
+@media (max-width: 480px) {
+  .home-page {
+    padding: 16px 12px;
+  }
+  
+  .category-item {
+    min-width: 60px;
+  }
+  
+  .category-icon {
+    width: 50px;
+    height: 50px;
+  }
+} 

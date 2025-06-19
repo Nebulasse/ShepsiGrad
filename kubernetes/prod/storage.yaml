@@ -1,0 +1,303 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: storage
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: minio-credentials
+  namespace: storage
+type: Opaque
+data:
+  accesskey: bWluaW9hZG1pbg==  # minioadmin
+  secretkey: bWluaW9hZG1pbjEyMw==  # minioadmin123
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: minio
+  namespace: storage
+spec:
+  selector:
+    matchLabels:
+      app: minio
+  strategy:
+    type: Recreate
+  template:
+    metadata:
+      labels:
+        app: minio
+    spec:
+      containers:
+      - name: minio
+        image: minio/minio:RELEASE.2023-07-21T21-12-44Z
+        args:
+        - server
+        - /data
+        - --console-address
+        - :9001
+        env:
+        - name: MINIO_ROOT_USER
+          valueFrom:
+            secretKeyRef:
+              name: minio-credentials
+              key: accesskey
+        - name: MINIO_ROOT_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: minio-credentials
+              key: secretkey
+        ports:
+        - containerPort: 9000
+          name: api
+        - containerPort: 9001
+          name: console
+        volumeMounts:
+        - name: data
+          mountPath: /data
+        resources:
+          requests:
+            memory: "1Gi"
+            cpu: "500m"
+          limits:
+            memory: "4Gi"
+            cpu: "2000m"
+        livenessProbe:
+          httpGet:
+            path: /minio/health/live
+            port: api
+          initialDelaySeconds: 30
+          periodSeconds: 20
+        readinessProbe:
+          httpGet:
+            path: /minio/health/ready
+            port: api
+          initialDelaySeconds: 30
+          periodSeconds: 15
+      volumes:
+      - name: data
+        persistentVolumeClaim:
+          claimName: minio-pvc
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: minio-pvc
+  namespace: storage
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 100Gi
+  storageClassName: managed-premium
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: minio
+  namespace: storage
+spec:
+  ports:
+  - port: 9000
+    targetPort: 9000
+    name: api
+  - port: 9001
+    targetPort: 9001
+    name: console
+  selector:
+    app: minio
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: minio-ingress
+  namespace: storage
+  annotations:
+    nginx.ingress.kubernetes.io/proxy-body-size: "0"
+    nginx.ingress.kubernetes.io/proxy-connect-timeout: "600"
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "600"
+    nginx.ingress.kubernetes.io/proxy-send-timeout: "600"
+    nginx.ingress.kubernetes.io/ssl-redirect: "true"
+    cert-manager.io/cluster-issuer: "letsencrypt-prod"
+spec:
+  tls:
+  - hosts:
+    - storage.shepsigrad.ru
+    secretName: storage-tls
+  rules:
+  - host: storage.shepsigrad.ru
+    http:
+      paths:
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: minio
+            port:
+              number: 9001
+---
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: minio-backup
+  namespace: storage
+spec:
+  schedule: "0 1 * * *"  # Каждый день в 01:00
+  successfulJobsHistoryLimit: 5
+  failedJobsHistoryLimit: 3
+  concurrencyPolicy: Forbid
+  jobTemplate:
+    spec:
+      template:
+        spec:
+          containers:
+          - name: backup
+            image: minio/mc:RELEASE.2023-07-21T20-44-28Z
+            env:
+            - name: MINIO_ACCESS_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: minio-credentials
+                  key: accesskey
+            - name: MINIO_SECRET_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: minio-credentials
+                  key: secretkey
+            - name: BACKUP_DATE
+              value: "$(date +%Y-%m-%d)"
+            command:
+            - /bin/sh
+            - -c
+            - |
+              mc alias set minio http://minio:9000 $MINIO_ACCESS_KEY $MINIO_SECRET_KEY
+              mc mirror --overwrite minio/shepsigrad-uploads minio/shepsigrad-backups/uploads-$BACKUP_DATE
+              # Удаляем бэкапы старше 30 дней
+              THIRTY_DAYS_AGO=$(date -d "30 days ago" +%Y-%m-%d)
+              mc rm --recursive --force minio/shepsigrad-backups/uploads-$THIRTY_DAYS_AGO || true
+            volumeMounts:
+            - name: backup-volume
+              mountPath: /backup
+          restartPolicy: OnFailure
+          volumes:
+          - name: backup-volume
+            emptyDir: {}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: minio-init
+  namespace: storage
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: minio-init
+  template:
+    metadata:
+      labels:
+        app: minio-init
+    spec:
+      containers:
+      - name: minio-init
+        image: minio/mc:RELEASE.2023-07-21T20-44-28Z
+        env:
+        - name: MINIO_ACCESS_KEY
+          valueFrom:
+            secretKeyRef:
+              name: minio-credentials
+              key: accesskey
+        - name: MINIO_SECRET_KEY
+          valueFrom:
+            secretKeyRef:
+              name: minio-credentials
+              key: secretkey
+        command:
+        - /bin/sh
+        - -c
+        - |
+          mc alias set minio http://minio:9000 $MINIO_ACCESS_KEY $MINIO_SECRET_KEY
+          
+          # Создаем бакеты, если они не существуют
+          mc mb --ignore-existing minio/shepsigrad-uploads
+          mc mb --ignore-existing minio/shepsigrad-backups
+          
+          # Устанавливаем политики доступа
+          mc policy set download minio/shepsigrad-uploads
+          mc policy set private minio/shepsigrad-backups
+          
+          # Настраиваем CORS для бакета с загрузками
+          cat > /tmp/cors.json << EOF
+          {
+            "CORSRules": [
+              {
+                "AllowedHeaders": ["*"],
+                "AllowedMethods": ["GET", "PUT", "POST", "DELETE"],
+                "AllowedOrigins": ["*"],
+                "ExposeHeaders": ["ETag", "Content-Length", "Content-Type"]
+              }
+            ]
+          }
+          EOF
+          mc admin config set minio cors < /tmp/cors.json
+          
+          # Настраиваем жизненный цикл для бакета с загрузками
+          cat > /tmp/lifecycle.json << EOF
+          {
+            "Rules": [
+              {
+                "ID": "Expire-temp-files",
+                "Status": "Enabled",
+                "Filter": {
+                  "Prefix": "temp/"
+                },
+                "Expiration": {
+                  "Days": 1
+                }
+              }
+            ]
+          }
+          EOF
+          mc ilm import minio/shepsigrad-uploads < /tmp/lifecycle.json
+          
+          echo "Инициализация MinIO завершена"
+          
+          # Держим контейнер запущенным для проверки логов
+          tail -f /dev/null
+      restartPolicy: Always
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: minio-metrics
+  namespace: storage
+  labels:
+    app: minio
+spec:
+  ports:
+  - port: 9000
+    targetPort: 9000
+    name: metrics
+  selector:
+    app: minio
+---
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: minio-service-monitor
+  namespace: monitoring
+  labels:
+    app: minio
+spec:
+  selector:
+    matchLabels:
+      app: minio
+  endpoints:
+  - port: metrics
+    path: /minio/v2/metrics/cluster
+    interval: 30s
+  namespaceSelector:
+    matchNames:
+    - storage 

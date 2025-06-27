@@ -5,13 +5,13 @@ WORKDIR /app
 
 # Устанавливаем зависимости
 COPY package*.json ./
-RUN npm ci --only=production
+RUN npm ci
 
 # Копируем исходный код
 COPY . .
 
 # Компилируем TypeScript в JavaScript
-RUN npm run build
+RUN npm run build && npm prune --production
 
 # Создаем директорию для загрузок
 RUN mkdir -p /app/uploads

@@ -3,6 +3,43 @@ kind: Namespace
 metadata:
   name: monitoring
 ---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: prometheus
+  namespace: monitoring
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: prometheus
+  template:
+    metadata:
+      labels:
+        app: prometheus
+    spec:
+      containers:
+      - name: prometheus
+        image: prom/prometheus:v2.43.0
+        args:
+        - "--config.file=/etc/prometheus/prometheus.yml"
+        - "--storage.tsdb.path=/prometheus"
+        - "--web.console.libraries=/usr/share/prometheus/console_libraries"
+        - "--web.console.templates=/usr/share/prometheus/consoles"
+        ports:
+        - containerPort: 9090
+        volumeMounts:
+        - name: prometheus-config
+          mountPath: /etc/prometheus
+        - name: prometheus-storage
+          mountPath: /prometheus
+      volumes:
+      - name: prometheus-config
+        configMap:
+          name: prometheus-config
+      - name: prometheus-storage
+        emptyDir: {}
+---
 apiVersion: v1
 kind: ConfigMap
 metadata:
@@ -13,22 +50,8 @@ data:
     global:
       scrape_interval: 15s
       evaluation_interval: 15s
-
-    alerting:
-      alertmanagers:
-      - static_configs:
-        - targets:
-          # - alertmanager:9093
-
-    rule_files:
-      # - "first_rules.yml"
-      # - "second_rules.yml"
-
+    
     scrape_configs:
-      - job_name: 'prometheus'
-        static_configs:
-        - targets: ['localhost:9090']
-
       - job_name: 'kubernetes-apiservers'
         kubernetes_sd_configs:
         - role: endpoints
@@ -40,7 +63,7 @@ data:
         - source_labels: [__meta_kubernetes_namespace, __meta_kubernetes_service_name, __meta_kubernetes_endpoint_port_name]
           action: keep
           regex: default;kubernetes;https
-
+      
       - job_name: 'kubernetes-nodes'
         scheme: https
         tls_config:
@@ -51,13 +74,7 @@ data:
         relabel_configs:
         - action: labelmap
           regex: __meta_kubernetes_node_label_(.+)
-        - target_label: __address__
-          replacement: kubernetes.default.svc:443
-        - source_labels: [__meta_kubernetes_node_name]
-          regex: (.+)
-          target_label: __metrics_path__
-          replacement: /api/v1/nodes/${1}/proxy/metrics
-
+      
       - job_name: 'kubernetes-pods'
         kubernetes_sd_configs:
         - role: pod
@@ -82,118 +99,30 @@ data:
         - source_labels: [__meta_kubernetes_pod_name]
           action: replace
           target_label: kubernetes_pod_name
-
-      - job_name: 'kubernetes-services'
-        kubernetes_sd_configs:
-        - role: service
-        metrics_path: /metrics
-        relabel_configs:
-        - source_labels: [__meta_kubernetes_service_annotation_prometheus_io_scrape]
-          action: keep
-          regex: true
-        - source_labels: [__meta_kubernetes_service_annotation_prometheus_io_path]
-          action: replace
-          target_label: __metrics_path__
-          regex: (.+)
-        - source_labels: [__address__, __meta_kubernetes_service_annotation_prometheus_io_port]
-          action: replace
-          regex: ([^:]+)(?::\d+)?;(\d+)
-          replacement: $1:$2
-          target_label: __address__
-        - action: labelmap
-          regex: __meta_kubernetes_service_label_(.+)
-        - source_labels: [__meta_kubernetes_namespace]
-          action: replace
-          target_label: kubernetes_namespace
-        - source_labels: [__meta_kubernetes_service_name]
-          action: replace
-          target_label: kubernetes_name
-
+      
       - job_name: 'shepsigrad-backend'
-        metrics_path: /metrics
-        kubernetes_sd_configs:
-        - role: service
-        relabel_configs:
-        - source_labels: [__meta_kubernetes_namespace, __meta_kubernetes_service_name]
-          action: keep
-          regex: shepsigrad-dev;shepsigrad-backend
-        - source_labels: [__address__]
-          target_label: __address__
-          regex: (.+)
-          replacement: $1:3000
-
-      - job_name: 'node-exporter'
-        kubernetes_sd_configs:
-        - role: endpoints
-        relabel_configs:
-        - source_labels: [__meta_kubernetes_endpoints_name]
-          regex: 'node-exporter'
-          action: keep
-
----
-apiVersion: apps/v1
-kind: Deployment
-metadata:
-  name: prometheus
-  namespace: monitoring
-spec:
-  replicas: 1
-  selector:
-    matchLabels:
-      app: prometheus
-  template:
-    metadata:
-      labels:
-        app: prometheus
-    spec:
-      containers:
-      - name: prometheus
-        image: prom/prometheus:v2.44.0
-        args:
-          - "--config.file=/etc/prometheus/prometheus.yml"
-          - "--storage.tsdb.path=/prometheus/"
-          - "--web.console.libraries=/usr/share/prometheus/console_libraries"
-          - "--web.console.templates=/usr/share/prometheus/consoles"
-        ports:
-        - containerPort: 9090
-        volumeMounts:
-        - name: prometheus-config-volume
-          mountPath: /etc/prometheus/
-        - name: prometheus-storage-volume
-          mountPath: /prometheus/
-      volumes:
-      - name: prometheus-config-volume
-        configMap:
-          defaultMode: 420
-          name: prometheus-config
-      - name: prometheus-storage-volume
-        emptyDir: {}
-
+        metrics_path: /api/v1/metrics
+        static_configs:
+        - targets: ['backend-service.shepsigrad-dev.svc.cluster.local:80']
 ---
 apiVersion: v1
 kind: Service
 metadata:
-  name: prometheus
+  name: prometheus-service
   namespace: monitoring
-  annotations:
-    prometheus.io/scrape: 'true'
-    prometheus.io/port: '9090'
 spec:
   selector:
     app: prometheus
   ports:
   - port: 9090
     targetPort: 9090
-    name: http
-
+  type: ClusterIP
 ---
 apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: grafana
   namespace: monitoring
-  labels:
-    app: grafana
 spec:
   replicas: 1
   selector:
@@ -206,23 +135,17 @@ spec:
     spec:
       containers:
       - name: grafana
-        image: grafana/grafana:10.0.3
+        image: grafana/grafana:9.5.1
         ports:
         - containerPort: 3000
-          name: http
         env:
-        - name: GF_SECURITY_ADMIN_USER
-          valueFrom:
-            secretKeyRef:
-              name: grafana-credentials
-              key: admin-user
         - name: GF_SECURITY_ADMIN_PASSWORD
           valueFrom:
             secretKeyRef:
-              name: grafana-credentials
+              name: grafana-secrets
               key: admin-password
-        - name: GF_INSTALL_PLUGINS
-          value: "grafana-piechart-panel,grafana-worldmap-panel"
+        - name: GF_USERS_ALLOW_SIGN_UP
+          value: "false"
         volumeMounts:
         - name: grafana-storage
           mountPath: /var/lib/grafana
@@ -239,18 +162,6 @@ spec:
       - name: grafana-dashboards
         configMap:
           name: grafana-dashboards
-
----
-apiVersion: v1
-kind: Secret
-metadata:
-  name: grafana-credentials
-  namespace: monitoring
-type: Opaque
-data:
-  admin-user: YWRtaW4=  # admin
-  admin-password: YWRtaW4xMjM=  # admin123
-
 ---
 apiVersion: v1
 kind: ConfigMap
@@ -263,10 +174,9 @@ data:
     datasources:
     - name: Prometheus
       type: prometheus
-      url: http://prometheus:9090
       access: proxy
+      url: http://prometheus-service:9090
       isDefault: true
-
 ---
 apiVersion: v1
 kind: ConfigMap
@@ -274,7 +184,7 @@ metadata:
   name: grafana-dashboards
   namespace: monitoring
 data:
-  dashboard-providers.yaml: |
+  dashboards.yaml: |
     apiVersion: 1
     providers:
     - name: 'default'
@@ -285,437 +195,11 @@ data:
       editable: true
       options:
         path: /var/lib/grafana/dashboards
-  kubernetes-pods-dashboard.json: |
-    {
-      "annotations": {
-        "list": [
-          {
-            "builtIn": 1,
-            "datasource": "-- Grafana --",
-            "enable": true,
-            "hide": true,
-            "iconColor": "rgba(0, 211, 255, 1)",
-            "name": "Annotations & Alerts",
-            "type": "dashboard"
-          }
-        ]
-      },
-      "editable": true,
-      "gnetId": null,
-      "graphTooltip": 0,
-      "id": 1,
-      "links": [],
-      "panels": [
-        {
-          "aliasColors": {},
-          "bars": false,
-          "dashLength": 10,
-          "dashes": false,
-          "datasource": "Prometheus",
-          "fieldConfig": {
-            "defaults": {
-              "custom": {}
-            },
-            "overrides": []
-          },
-          "fill": 1,
-          "fillGradient": 0,
-          "gridPos": {
-            "h": 9,
-            "w": 12,
-            "x": 0,
-            "y": 0
-          },
-          "hiddenSeries": false,
-          "id": 2,
-          "legend": {
-            "avg": false,
-            "current": false,
-            "max": false,
-            "min": false,
-            "show": true,
-            "total": false,
-            "values": false
-          },
-          "lines": true,
-          "linewidth": 1,
-          "nullPointMode": "null",
-          "options": {
-            "alertThreshold": true
-          },
-          "percentage": false,
-          "pluginVersion": "7.2.0",
-          "pointradius": 2,
-          "points": false,
-          "renderer": "flot",
-          "seriesOverrides": [],
-          "spaceLength": 10,
-          "stack": false,
-          "steppedLine": false,
-          "targets": [
-            {
-              "expr": "sum by(pod) (rate(container_cpu_usage_seconds_total{namespace=\"shepsigrad-dev\"}[5m]))",
-              "interval": "",
-              "legendFormat": "{{pod}}",
-              "refId": "A"
-            }
-          ],
-          "thresholds": [],
-          "timeFrom": null,
-          "timeRegions": [],
-          "timeShift": null,
-          "title": "CPU Usage",
-          "tooltip": {
-            "shared": true,
-            "sort": 0,
-            "value_type": "individual"
-          },
-          "type": "graph",
-          "xaxis": {
-            "buckets": null,
-            "mode": "time",
-            "name": null,
-            "show": true,
-            "values": []
-          },
-          "yaxes": [
-            {
-              "format": "short",
-              "label": null,
-              "logBase": 1,
-              "max": null,
-              "min": null,
-              "show": true
-            },
-            {
-              "format": "short",
-              "label": null,
-              "logBase": 1,
-              "max": null,
-              "min": null,
-              "show": true
-            }
-          ],
-          "yaxis": {
-            "align": false,
-            "alignLevel": null
-          }
-        },
-        {
-          "aliasColors": {},
-          "bars": false,
-          "dashLength": 10,
-          "dashes": false,
-          "datasource": "Prometheus",
-          "fieldConfig": {
-            "defaults": {
-              "custom": {}
-            },
-            "overrides": []
-          },
-          "fill": 1,
-          "fillGradient": 0,
-          "gridPos": {
-            "h": 9,
-            "w": 12,
-            "x": 12,
-            "y": 0
-          },
-          "hiddenSeries": false,
-          "id": 4,
-          "legend": {
-            "avg": false,
-            "current": false,
-            "max": false,
-            "min": false,
-            "show": true,
-            "total": false,
-            "values": false
-          },
-          "lines": true,
-          "linewidth": 1,
-          "nullPointMode": "null",
-          "options": {
-            "alertThreshold": true
-          },
-          "percentage": false,
-          "pluginVersion": "7.2.0",
-          "pointradius": 2,
-          "points": false,
-          "renderer": "flot",
-          "seriesOverrides": [],
-          "spaceLength": 10,
-          "stack": false,
-          "steppedLine": false,
-          "targets": [
-            {
-              "expr": "sum by(pod) (container_memory_usage_bytes{namespace=\"shepsigrad-dev\"})",
-              "interval": "",
-              "legendFormat": "{{pod}}",
-              "refId": "A"
-            }
-          ],
-          "thresholds": [],
-          "timeFrom": null,
-          "timeRegions": [],
-          "timeShift": null,
-          "title": "Memory Usage",
-          "tooltip": {
-            "shared": true,
-            "sort": 0,
-            "value_type": "individual"
-          },
-          "type": "graph",
-          "xaxis": {
-            "buckets": null,
-            "mode": "time",
-            "name": null,
-            "show": true,
-            "values": []
-          },
-          "yaxes": [
-            {
-              "format": "bytes",
-              "label": null,
-              "logBase": 1,
-              "max": null,
-              "min": null,
-              "show": true
-            },
-            {
-              "format": "short",
-              "label": null,
-              "logBase": 1,
-              "max": null,
-              "min": null,
-              "show": true
-            }
-          ],
-          "yaxis": {
-            "align": false,
-            "alignLevel": null
-          }
-        },
-        {
-          "aliasColors": {},
-          "bars": false,
-          "dashLength": 10,
-          "dashes": false,
-          "datasource": "Prometheus",
-          "fieldConfig": {
-            "defaults": {
-              "custom": {}
-            },
-            "overrides": []
-          },
-          "fill": 1,
-          "fillGradient": 0,
-          "gridPos": {
-            "h": 9,
-            "w": 12,
-            "x": 0,
-            "y": 9
-          },
-          "hiddenSeries": false,
-          "id": 6,
-          "legend": {
-            "avg": false,
-            "current": false,
-            "max": false,
-            "min": false,
-            "show": true,
-            "total": false,
-            "values": false
-          },
-          "lines": true,
-          "linewidth": 1,
-          "nullPointMode": "null",
-          "options": {
-            "alertThreshold": true
-          },
-          "percentage": false,
-          "pluginVersion": "7.2.0",
-          "pointradius": 2,
-          "points": false,
-          "renderer": "flot",
-          "seriesOverrides": [],
-          "spaceLength": 10,
-          "stack": false,
-          "steppedLine": false,
-          "targets": [
-            {
-              "expr": "sum by(pod) (rate(container_network_receive_bytes_total{namespace=\"shepsigrad-dev\"}[5m]))",
-              "interval": "",
-              "legendFormat": "{{pod}} - Received",
-              "refId": "A"
-            },
-            {
-              "expr": "sum by(pod) (rate(container_network_transmit_bytes_total{namespace=\"shepsigrad-dev\"}[5m]))",
-              "interval": "",
-              "legendFormat": "{{pod}} - Transmitted",
-              "refId": "B"
-            }
-          ],
-          "thresholds": [],
-          "timeFrom": null,
-          "timeRegions": [],
-          "timeShift": null,
-          "title": "Network Traffic",
-          "tooltip": {
-            "shared": true,
-            "sort": 0,
-            "value_type": "individual"
-          },
-          "type": "graph",
-          "xaxis": {
-            "buckets": null,
-            "mode": "time",
-            "name": null,
-            "show": true,
-            "values": []
-          },
-          "yaxes": [
-            {
-              "format": "bytes",
-              "label": null,
-              "logBase": 1,
-              "max": null,
-              "min": null,
-              "show": true
-            },
-            {
-              "format": "short",
-              "label": null,
-              "logBase": 1,
-              "max": null,
-              "min": null,
-              "show": true
-            }
-          ],
-          "yaxis": {
-            "align": false,
-            "alignLevel": null
-          }
-        },
-        {
-          "aliasColors": {},
-          "bars": false,
-          "dashLength": 10,
-          "dashes": false,
-          "datasource": "Prometheus",
-          "fieldConfig": {
-            "defaults": {
-              "custom": {}
-            },
-            "overrides": []
-          },
-          "fill": 1,
-          "fillGradient": 0,
-          "gridPos": {
-            "h": 9,
-            "w": 12,
-            "x": 12,
-            "y": 9
-          },
-          "hiddenSeries": false,
-          "id": 8,
-          "legend": {
-            "avg": false,
-            "current": false,
-            "max": false,
-            "min": false,
-            "show": true,
-            "total": false,
-            "values": false
-          },
-          "lines": true,
-          "linewidth": 1,
-          "nullPointMode": "null",
-          "options": {
-            "alertThreshold": true
-          },
-          "percentage": false,
-          "pluginVersion": "7.2.0",
-          "pointradius": 2,
-          "points": false,
-          "renderer": "flot",
-          "seriesOverrides": [],
-          "spaceLength": 10,
-          "stack": false,
-          "steppedLine": false,
-          "targets": [
-            {
-              "expr": "sum by(pod) (rate(http_request_duration_seconds_count{namespace=\"shepsigrad-dev\"}[5m]))",
-              "interval": "",
-              "legendFormat": "{{pod}}",
-              "refId": "A"
-            }
-          ],
-          "thresholds": [],
-          "timeFrom": null,
-          "timeRegions": [],
-          "timeShift": null,
-          "title": "HTTP Request Rate",
-          "tooltip": {
-            "shared": true,
-            "sort": 0,
-            "value_type": "individual"
-          },
-          "type": "graph",
-          "xaxis": {
-            "buckets": null,
-            "mode": "time",
-            "name": null,
-            "show": true,
-            "values": []
-          },
-          "yaxes": [
-            {
-              "format": "short",
-              "label": null,
-              "logBase": 1,
-              "max": null,
-              "min": null,
-              "show": true
-            },
-            {
-              "format": "short",
-              "label": null,
-              "logBase": 1,
-              "max": null,
-              "min": null,
-              "show": true
-            }
-          ],
-          "yaxis": {
-            "align": false,
-            "alignLevel": null
-          }
-        }
-      ],
-      "refresh": "10s",
-      "schemaVersion": 26,
-      "style": "dark",
-      "tags": [],
-      "templating": {
-        "list": []
-      },
-      "time": {
-        "from": "now-1h",
-        "to": "now"
-      },
-      "timepicker": {},
-      "timezone": "",
-      "title": "ShepsiGrad Dashboard",
-      "uid": "shepsigrad",
-      "version": 1
-    }
-
 ---
 apiVersion: v1
 kind: Service
 metadata:
-  name: grafana
+  name: grafana-service
   namespace: monitoring
 spec:
   selector:
@@ -723,85 +207,39 @@ spec:
   ports:
   - port: 3000
     targetPort: 3000
-    name: http
-
+  type: ClusterIP
 ---
 apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:
-  name: grafana-ingress
+  name: monitoring-ingress
   namespace: monitoring
   annotations:
-    nginx.ingress.kubernetes.io/rewrite-target: /
+    kubernetes.io/ingress.class: "nginx"
+    nginx.ingress.kubernetes.io/ssl-redirect: "true"
+    nginx.ingress.kubernetes.io/auth-type: basic
+    nginx.ingress.kubernetes.io/auth-secret: monitoring-auth
+    nginx.ingress.kubernetes.io/auth-realm: "Authentication Required"
 spec:
+  tls:
+  - hosts:
+    - monitoring.shepsigrad.dev
+    secretName: monitoring-tls-secret
   rules:
-  - host: grafana.shepsigrad.dev
+  - host: monitoring.shepsigrad.dev
     http:
       paths:
       - path: /
         pathType: Prefix
         backend:
           service:
-            name: grafana
+            name: grafana-service
             port:
               number: 3000
-
----
-apiVersion: apps/v1
-kind: DaemonSet
-metadata:
-  name: node-exporter
-  namespace: monitoring
-  labels:
-    app: node-exporter
-spec:
-  selector:
-    matchLabels:
-      app: node-exporter
-  template:
-    metadata:
-      labels:
-        app: node-exporter
-    spec:
-      hostNetwork: true
-      hostPID: true
-      containers:
-      - name: node-exporter
-        image: prom/node-exporter:v1.6.0
-        args:
-        - --path.procfs=/host/proc
-        - --path.sysfs=/host/sys
-        ports:
-        - containerPort: 9100
-          protocol: TCP
-        volumeMounts:
-        - name: proc
-          mountPath: /host/proc
-          readOnly: true
-        - name: sys
-          mountPath: /host/sys
-          readOnly: true
-      volumes:
-      - name: proc
-        hostPath:
-          path: /proc
-      - name: sys
-        hostPath:
-          path: /sys
-
----
-apiVersion: v1
-kind: Service
-metadata:
-  name: node-exporter
-  namespace: monitoring
-  annotations:
-    prometheus.io/scrape: 'true'
-    prometheus.io/port: '9100'
-spec:
-  selector:
-    app: node-exporter
-  ports:
-  - port: 9100
-    targetPort: 9100
-    name: metrics 
+      - path: /prometheus
+        pathType: Prefix
+        backend:
+          service:
+            name: prometheus-service
+            port:
+              number: 9090 

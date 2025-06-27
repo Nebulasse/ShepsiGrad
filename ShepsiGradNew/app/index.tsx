@@ -1,8 +1,10 @@
 import { useState } from 'react';
-import { StyleSheet, Text, View, ScrollView, TouchableOpacity, TextInput, Image, FlatList, Dimensions } from 'react-native';
+import { StyleSheet, Text, View, ScrollView, TouchableOpacity, TextInput, Image, FlatList, Dimensions, Platform } from 'react-native';
 import { Stack, useRouter } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import { Ionicons, MaterialIcons } from '@expo/vector-icons';
+import { useAuth } from './contexts/AuthContext';
+import { addNewProperty } from './services/propertyService';
 
 // Типы данных
 interface Property {
@@ -69,7 +71,12 @@ const propertyCardWidth = width * 0.7;
 
 export default function HomeScreen() {
   const router = useRouter();
+  const { user, isAuthenticated } = useAuth();
   const [searchQuery, setSearchQuery] = useState('');
+
+  const navigateTo = (route: string) => {
+    router.push(route);
+  };
 
   const navigateToSearch = () => {
     router.push('/search');
@@ -77,6 +84,35 @@ export default function HomeScreen() {
 
   const navigateToPropertyDetails = (id: string) => {
     router.push(`/property/${id}`);
+  };
+
+  // Функция для добавления тестового объекта недвижимости
+  const addTestProperty = async () => {
+    try {
+      // Создаем новый объект с немного смещенными координатами для наглядности
+      const newProperty = {
+        title: 'Новый объект недвижимости',
+        price: '6000 ₽/день',
+        location: 'Шепси, 300м от моря',
+        rating: 4.3,
+        imageUrl: 'https://images.unsplash.com/photo-1568605114967-8130f3a36994?q=80&w=1000&auto=format&fit=crop',
+        description: 'Новый объект недвижимости, добавленный для тестирования обновления карты в реальном времени.',
+        latitude: 44.0370 + (Math.random() * 0.01 - 0.005), // Случайное смещение для наглядности
+        longitude: 39.1530 + (Math.random() * 0.01 - 0.005),
+        area: 70,
+        amenities: ['Wi-Fi', 'Кондиционер', 'Телевизор', 'Парковка'],
+        type: 'apartment'
+      };
+      
+      // Добавляем объект
+      const result = await addNewProperty(newProperty);
+      console.log('Добавлен тестовый объект:', result);
+      
+      // Переходим на страницу поиска для просмотра результата
+      router.push('/search');
+    } catch (error) {
+      console.error('Ошибка при добавлении тестового объекта:', error);
+    }
   };
 
   const renderPropertyItem = ({ item }: { item: Property }) => (
@@ -204,6 +240,15 @@ export default function HomeScreen() {
             </View>
           </TouchableOpacity>
         </View>
+
+        {/* Кнопка для тестирования добавления нового объекта на карту */}
+        <TouchableOpacity 
+          style={styles.testButton}
+          onPress={addTestProperty}
+        >
+          <Ionicons name="add-circle" size={20} color="#fff" />
+          <Text style={styles.testButtonText}>Добавить тестовый объект на карту</Text>
+        </TouchableOpacity>
       </ScrollView>
     </View>
   );
@@ -446,5 +491,21 @@ const styles = StyleSheet.create({
   contentContainer: {
     padding: 20,
     paddingBottom: 100,
+  },
+  testButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#007AFF',
+    borderRadius: 8,
+    paddingVertical: 12,
+    marginHorizontal: 16,
+    marginBottom: 24,
+  },
+  testButtonText: {
+    color: '#fff',
+    fontSize: 16,
+    fontWeight: '500',
+    marginLeft: 8,
   },
 }); 

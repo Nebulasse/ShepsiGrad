@@ -1,65 +1,41 @@
 import React, { useState, useEffect } from 'react';
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Image, ActivityIndicator, Alert } from 'react-native';
+import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Image, ActivityIndicator, Alert, RefreshControl } from 'react-native';
 import { Stack, useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { useAuth } from './contexts/AuthContext';
-import { getCurrentUser, logout, updateUserProfile } from './services/api';
 import ProfileSettings from './components/profile/ProfileSettings';
 
 export default function ProfileScreen() {
-  const { user, setUser } = useAuth();
+  const { user, logout } = useAuth();
   const router = useRouter();
-  const [isLoading, setIsLoading] = useState(true);
+  const [isLoading, setIsLoading] = useState(false);
+  const [refreshing, setRefreshing] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
-  const [userData, setUserData] = useState<any>(null);
 
-  useEffect(() => {
-    fetchUserData();
-  }, []);
-
-  const fetchUserData = async () => {
-    try {
-      setIsLoading(true);
-      const data = await getCurrentUser();
-      setUserData(data);
-    } catch (error) {
-      console.error('Error fetching user data:', error);
-      Alert.alert('Ошибка', 'Не удалось загрузить данные пользователя');
-    } finally {
-      setIsLoading(false);
-    }
+  // Функция для обновления данных
+  const onRefresh = async () => {
+    setRefreshing(true);
+    // Здесь можно добавить логику обновления данных, если необходимо
+    setTimeout(() => {
+      setRefreshing(false);
+    }, 1000);
   };
 
+  // Обработчик выхода из аккаунта
   const handleLogout = async () => {
     try {
       await logout();
-      setUser(null);
       router.replace('/');
     } catch (error) {
-      console.error('Error during logout:', error);
+      console.error('Ошибка при выходе из аккаунта:', error);
       Alert.alert('Ошибка', 'Не удалось выйти из аккаунта');
-    }
-  };
-
-  const handleSaveProfile = async (profileData: any) => {
-    try {
-      setIsLoading(true);
-      await updateUserProfile(profileData);
-      await fetchUserData();
-      setShowSettings(false);
-      Alert.alert('Успех', 'Профиль успешно обновлен');
-    } catch (error) {
-      console.error('Error updating profile:', error);
-      Alert.alert('Ошибка', 'Не удалось обновить профиль');
-    } finally {
-      setIsLoading(false);
     }
   };
 
   if (isLoading) {
     return (
       <View style={styles.loadingContainer}>
-        <ActivityIndicator size="large" color="#007AFF" />
+        <ActivityIndicator size="large" color="#4D8EFF" />
         <Text style={styles.loadingText}>Загрузка...</Text>
       </View>
     );
@@ -71,42 +47,46 @@ export default function ProfileScreen() {
         <Stack.Screen 
           options={{ 
             title: 'Настройки профиля',
-            headerLeft: () => (
-              <TouchableOpacity onPress={() => setShowSettings(false)}>
-                <Ionicons name="arrow-back" size={24} color="#007AFF" />
-              </TouchableOpacity>
-            )
+            headerShown: false
           }} 
         />
-        <ProfileSettings 
-          userData={userData} 
-          onSave={handleSaveProfile}
-          onCancel={() => setShowSettings(false)}
-        />
+        <ProfileSettings onClose={() => setShowSettings(false)} />
       </View>
     );
   }
 
+  const fullName = user ? 
+    `${user.firstName || ''} ${user.lastName || ''}`.trim() : 
+    'Пользователь';
+
   return (
-    <ScrollView style={styles.container}>
+    <ScrollView 
+      style={styles.container}
+      refreshControl={
+        <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
+      }
+    >
       <Stack.Screen options={{ title: 'Профиль' }} />
       
       <View style={styles.profileHeader}>
-        <Image 
-          source={
-            userData?.avatar_url 
-              ? { uri: userData.avatar_url } 
-              : { uri: 'https://via.placeholder.com/80x80' }
-          } 
-          style={styles.avatar}
-        />
+        {user?.avatar ? (
+          <Image 
+            source={{ uri: user.avatar }} 
+            style={styles.avatar}
+            onError={(e) => console.log('Ошибка загрузки аватара:', e.nativeEvent.error)}
+          />
+        ) : (
+          <View style={styles.avatarPlaceholder}>
+            <Text style={styles.avatarPlaceholderText}>
+              {user?.firstName ? user.firstName.charAt(0).toUpperCase() : 'U'}
+            </Text>
+          </View>
+        )}
         <View style={styles.profileInfo}>
-          <Text style={styles.userName}>
-            {userData?.first_name} {userData?.last_name}
-          </Text>
-          <Text style={styles.userEmail}>{userData?.email}</Text>
-          {userData?.phone && (
-            <Text style={styles.userPhone}>{userData.phone}</Text>
+          <Text style={styles.userName}>{fullName}</Text>
+          <Text style={styles.userEmail}>{user?.email || 'Нет email'}</Text>
+          {user?.phone && (
+            <Text style={styles.userPhone}>{user.phone}</Text>
           )}
         </View>
       </View>
@@ -152,7 +132,7 @@ export default function ProfileScreen() {
         
         <TouchableOpacity 
           style={styles.menuItem}
-          onPress={() => Alert.alert('Помощь', 'Здесь будет раздел помощи')}
+          onPress={() => router.push('/help')}
         >
           <Ionicons name="help-circle-outline" size={24} color="#333" />
           <Text style={styles.menuItemText}>Помощь</Text>
@@ -204,6 +184,20 @@ const styles = StyleSheet.create({
     height: 80,
     borderRadius: 40,
     marginRight: 16,
+  },
+  avatarPlaceholder: {
+    width: 80,
+    height: 80,
+    borderRadius: 40,
+    backgroundColor: '#E0E0E0',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginRight: 16,
+  },
+  avatarPlaceholderText: {
+    fontSize: 32,
+    fontWeight: 'bold',
+    color: '#FFFFFF',
   },
   profileInfo: {
     flex: 1,

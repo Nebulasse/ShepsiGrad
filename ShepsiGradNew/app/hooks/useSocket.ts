@@ -1,9 +1,10 @@
 import { useEffect, useRef, useState, useCallback } from 'react';
 import { io, Socket } from 'socket.io-client';
 import { useAuth } from '../contexts/AuthContext';
+import config from '../config';
 
-// Базовый URL для сокетов
-const SOCKET_URL = 'ws://localhost:3001';
+// Базовый URL для сокетов (берем из конфигурации)
+const SOCKET_URL = config.apiUrl.replace('/api', '');
 
 interface UseSocketReturn {
   isConnected: boolean;
@@ -12,18 +13,23 @@ interface UseSocketReturn {
 }
 
 const useSocket = (): UseSocketReturn => {
-  const { user, isAuthenticated } = useAuth();
+  const { user, isAuthenticated, token } = useAuth();
   const [isConnected, setIsConnected] = useState(false);
   const socketRef = useRef<Socket | null>(null);
 
   useEffect(() => {
-    if (!user || !isAuthenticated) return;
+    if (!user || !isAuthenticated || !token) return;
 
     // Инициализация сокета
     const socket = io(SOCKET_URL, {
       auth: {
-        userId: user.id
-      }
+        token,
+        appType: 'tenant'
+      },
+      transports: ['websocket'],
+      reconnection: true,
+      reconnectionAttempts: 5,
+      reconnectionDelay: 1000,
     });
 
     socketRef.current = socket;
@@ -48,7 +54,7 @@ const useSocket = (): UseSocketReturn => {
       socket.disconnect();
       socketRef.current = null;
     };
-  }, [user, isAuthenticated]);
+  }, [user, isAuthenticated, token]);
 
   const sendPrivateMessage = useCallback((to: string, message: string, propertyId?: string) => {
     if (!socketRef.current || !isConnected) return;

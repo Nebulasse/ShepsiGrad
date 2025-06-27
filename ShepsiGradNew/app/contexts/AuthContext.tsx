@@ -1,22 +1,28 @@
 import React, { createContext, useState, useContext, useEffect } from 'react';
 import { Alert } from 'react-native';
 import * as SecureStore from 'expo-secure-store';
+import api from '../services/api';
+import config from '../config';
 
 // Определение типов
 interface User {
   id: string;
-  name: string;
   email: string;
-  role: 'guest' | 'host' | 'admin';
+  firstName?: string;
+  lastName?: string;
+  full_name?: string;
+  role: 'user' | 'landlord' | 'admin';
   avatar?: string;
+  phone?: string;
 }
 
 interface AuthContextType {
   user: User | null;
   isLoading: boolean;
   isAuthenticated: boolean;
+  token: string | null;
   login: (email: string, password: string) => Promise<void>;
-  register: (email: string, password: string, name: string) => Promise<void>;
+  register: (email: string, password: string, firstName: string, lastName: string) => Promise<void>;
   logout: () => Promise<void>;
   updateProfile: (userData: Partial<User>) => Promise<void>;
 }
@@ -24,44 +30,39 @@ interface AuthContextType {
 // Создание контекста
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
-// Временные данные для демонстрации
-const DEMO_USER: User = {
-  id: 'user-123',
-  name: 'Демо Пользователь',
-  email: 'demo@example.com',
-  role: 'guest',
-  avatar: 'https://randomuser.me/api/portraits/men/32.jpg'
-};
-
 // Провайдер контекста
 export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [user, setUser] = useState<User | null>(null);
+  const [token, setToken] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
 
   // Загрузка данных пользователя при инициализации
   useEffect(() => {
     const loadUser = async () => {
       try {
-        // В реальном приложении здесь будет проверка токена и загрузка данных пользователя
-        const userJson = await SecureStore.getItemAsync('user');
+        // Получаем токен из хранилища
+        const savedToken = await SecureStore.getItemAsync('auth_token');
         
-        if (userJson) {
-          setUser(JSON.parse(userJson));
+        if (savedToken) {
+          // Устанавливаем токен для API запросов
+          api.setAuthToken(savedToken);
+          setToken(savedToken);
+          
+          // Получаем данные пользователя
+          const response = await api.get('/auth/profile');
+          setUser(response.data.user);
         }
       } catch (error) {
         console.error('Ошибка при загрузке данных пользователя:', error);
+        // Если токен невалидный, удаляем его
+        await SecureStore.deleteItemAsync('auth_token');
+        setToken(null);
       } finally {
         setIsLoading(false);
       }
     };
 
-    // Для демонстрации используем задержку и демо-пользователя
-    setTimeout(() => {
-      setUser(DEMO_USER);
-      setIsLoading(false);
-    }, 1000);
-
-    // loadUser();
+    loadUser();
   }, []);
 
   // Функция входа
@@ -69,46 +70,50 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     try {
       setIsLoading(true);
       
-      // В реальном приложении здесь будет API запрос
-      // const response = await apiClient.post('/auth/login', { email, password });
-      // const { user, token } = response.data;
+      // Отправляем запрос на вход
+      const response = await api.post('/auth/login', { email, password });
+      const { user: userData, token: authToken } = response.data;
       
-      // Имитация успешного входа
-      await new Promise(resolve => setTimeout(resolve, 1000));
-      
-      // Сохраняем пользователя
-      setUser(DEMO_USER);
-      await SecureStore.setItemAsync('user', JSON.stringify(DEMO_USER));
+      // Сохраняем токен и пользователя
+      await SecureStore.setItemAsync('auth_token', authToken);
+      api.setAuthToken(authToken);
+      setToken(authToken);
+      setUser(userData);
       
     } catch (error) {
       console.error('Ошибка при входе:', error);
       Alert.alert('Ошибка', 'Неверный email или пароль');
+      throw error;
     } finally {
       setIsLoading(false);
     }
   };
 
   // Функция регистрации
-  const register = async (email: string, password: string, name: string) => {
+  const register = async (email: string, password: string, firstName: string, lastName: string) => {
     try {
       setIsLoading(true);
       
-      // В реальном приложении здесь будет API запрос
-      // const response = await apiClient.post('/auth/register', { email, password, name });
-      // const { user, token } = response.data;
+      // Отправляем запрос на регистрацию
+      const response = await api.post('/auth/register', { 
+        email, 
+        password, 
+        firstName, 
+        lastName 
+      });
       
-      // Имитация успешной регистрации
-      await new Promise(resolve => setTimeout(resolve, 1000));
+      const { user: userData, token: authToken } = response.data;
       
-      const newUser = { ...DEMO_USER, email, name };
-      
-      // Сохраняем пользователя
-      setUser(newUser);
-      await SecureStore.setItemAsync('user', JSON.stringify(newUser));
+      // Сохраняем токен и пользователя
+      await SecureStore.setItemAsync('auth_token', authToken);
+      api.setAuthToken(authToken);
+      setToken(authToken);
+      setUser(userData);
       
     } catch (error) {
       console.error('Ошибка при регистрации:', error);
       Alert.alert('Ошибка', 'Не удалось зарегистрироваться');
+      throw error;
     } finally {
       setIsLoading(false);
     }
@@ -119,11 +124,18 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     try {
       setIsLoading(true);
       
-      // В реальном приложении здесь может быть API запрос для инвалидации токена
+      // Отправляем запрос на выход (если требуется)
+      try {
+        await api.post('/auth/logout');
+      } catch (e) {
+        // Игнорируем ошибки при выходе
+      }
       
-      // Удаляем данные пользователя
+      // Удаляем токен и данные пользователя
+      await SecureStore.deleteItemAsync('auth_token');
+      api.setAuthToken(null);
+      setToken(null);
       setUser(null);
-      await SecureStore.deleteItemAsync('user');
       
     } catch (error) {
       console.error('Ошибка при выходе:', error);
@@ -137,22 +149,17 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     try {
       setIsLoading(true);
       
-      // В реальном приложении здесь будет API запрос
-      // const response = await apiClient.put('/users/profile', userData);
-      // const updatedUser = response.data;
+      // Отправляем запрос на обновление профиля
+      const response = await api.put('/users/profile', userData);
+      const updatedUser = response.data.user;
       
-      // Имитация успешного обновления
-      await new Promise(resolve => setTimeout(resolve, 1000));
-      
-      const updatedUser = { ...user, ...userData } as User;
-      
-      // Сохраняем обновленного пользователя
+      // Обновляем данные пользователя
       setUser(updatedUser);
-      await SecureStore.setItemAsync('user', JSON.stringify(updatedUser));
       
     } catch (error) {
       console.error('Ошибка при обновлении профиля:', error);
       Alert.alert('Ошибка', 'Не удалось обновить профиль');
+      throw error;
     } finally {
       setIsLoading(false);
     }
@@ -162,8 +169,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     <AuthContext.Provider
       value={{
         user,
+        token,
         isLoading,
-        isAuthenticated: !!user,
+        isAuthenticated: !!user && !!token,
         login,
         register,
         logout,

@@ -5,90 +5,226 @@ import {
   FlatList,
   TouchableOpacity,
   StyleSheet,
-  ActivityIndicator
+  ActivityIndicator,
+  RefreshControl
 } from 'react-native';
-import { useSocket } from '../hooks/useSocket';
+import { Ionicons } from '@expo/vector-icons';
+import { router } from 'expo-router';
 import { useAuth } from '../contexts/AuthContext';
+import axios from 'axios';
+import config from '../config';
+import { useSocket } from '../hooks/useSocket';
 
+// Тип уведомления
 interface Notification {
   id: string;
-  type: 'booking' | 'message' | 'review' | 'system';
+  type: string;
   title: string;
   message: string;
-  timestamp: Date;
   read: boolean;
-  propertyId?: string;
-  bookingId?: string;
+  createdAt: string;
+  data?: any;
 }
 
 const Notifications = () => {
-  const { user } = useAuth();
-  const { socket, isConnected } = useSocket();
+  const { user, token } = useAuth();
   const [notifications, setNotifications] = useState<Notification[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
-
+  const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
+  const { socket } = useSocket();
+  
+  // Загрузка уведомлений
   useEffect(() => {
-    if (!user?.id) return;
-
-    // Загрузка уведомлений
-    const fetchNotifications = async () => {
-      try {
-        const response = await fetch(`/api/notifications?userId=${user.id}`);
-        const data = await response.json();
-        setNotifications(data);
-      } catch (error) {
-        console.error('Ошибка при загрузке уведомлений:', error);
-      } finally {
-        setIsLoading(false);
-      }
-    };
-
-    fetchNotifications();
-
-    // Подписка на новые уведомления
+    if (user && token) {
+      fetchNotifications();
+    }
+  }, [user, token]);
+  
+  // Подписка на новые уведомления через сокеты
+  useEffect(() => {
     if (socket) {
-      socket.on('notification', (notification: Notification) => {
-        setNotifications(prev => [notification, ...prev]);
-      });
-
+      // Подписка на новые уведомления
+      socket.on('notification', handleNewNotification);
+      
       return () => {
-        socket.off('notification');
+        socket.off('notification', handleNewNotification);
       };
     }
-  }, [user, socket]);
-
-  const markAsRead = async (notificationId: string) => {
+  }, [socket]);
+  
+  // Обработка нового уведомления
+  const handleNewNotification = (notification: Notification) => {
+    if (!notification) return;
+    setNotifications(prev => [notification, ...prev]);
+  };
+  
+  // Загрузка уведомлений с сервера
+  const fetchNotifications = async () => {
+    if (!user || !token) return;
+    
     try {
-      await fetch(`/api/notifications/${notificationId}/read`, {
-        method: 'POST'
+      setLoading(true);
+      const response = await axios.get(`${config.apiUrl}/notifications`, {
+        headers: { Authorization: `Bearer ${token}` }
       });
       
-      setNotifications(prev =>
-        prev.map(n =>
-          n.id === notificationId ? { ...n, read: true } : n
+      if (response.data) {
+        setNotifications(response.data);
+      }
+    } catch (error) {
+      console.error('Ошибка при загрузке уведомлений:', error);
+    } finally {
+      setLoading(false);
+      setRefreshing(false);
+    }
+  };
+  
+  // Обновление списка уведомлений
+  const handleRefresh = () => {
+    setRefreshing(true);
+    fetchNotifications();
+  };
+  
+  // Отметка уведомления как прочитанное
+  const markAsRead = async (notificationId: string) => {
+    if (!user || !token || !notificationId) return;
+    
+    try {
+      await axios.put(`${config.apiUrl}/notifications/${notificationId}/read`, {}, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      
+      // Обновляем состояние уведомления локально
+      setNotifications(prev => 
+        prev.map(notification => 
+          notification.id === notificationId 
+            ? { ...notification, read: true } 
+            : notification
         )
       );
     } catch (error) {
-      console.error('Ошибка при отметке уведомления:', error);
+      console.error('Ошибка при отметке уведомления как прочитанное:', error);
     }
   };
-
-  const getNotificationIcon = (type: Notification['type']) => {
-    switch (type) {
-      case 'booking':
-        return '📅';
-      case 'message':
-        return '💬';
-      case 'review':
-        return '⭐';
-      case 'system':
-        return '🔔';
+  
+  // Отметка всех уведомлений как прочитанные
+  const markAllAsRead = async () => {
+    if (!user || !token) return;
+    
+    try {
+      await axios.put(`${config.apiUrl}/notifications/read-all`, {}, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      
+      // Обновляем состояние всех уведомлений локально
+      setNotifications(prev => 
+        prev.map(notification => ({ ...notification, read: true }))
+      );
+    } catch (error) {
+      console.error('Ошибка при отметке всех уведомлений как прочитанные:', error);
+    }
+  };
+  
+  // Обработка нажатия на уведомление
+  const handleNotificationPress = (notification: Notification) => {
+    if (!notification) return;
+    
+    // Отмечаем уведомление как прочитанное
+    if (!notification.read) {
+      markAsRead(notification.id);
+    }
+    
+    // Навигация в зависимости от типа уведомления
+    switch (notification.type) {
+      case 'NEW_BOOKING':
+      case 'BOOKING_CANCELLED':
+      case 'BOOKING_REMINDER':
+        if (notification.data?.bookingId) {
+          router.push(`/booking/${notification.data.bookingId}`);
+        }
+        break;
+      case 'NEW_MESSAGE':
+        if (notification.data?.conversationId) {
+          router.push(`/conversation/${notification.data.conversationId}`);
+        }
+        break;
+      case 'NEW_REVIEW':
+        if (notification.data?.propertyId) {
+          router.push(`/property/${notification.data.propertyId}/reviews`);
+        }
+        break;
+      case 'PROPERTY_UPDATES':
+        if (notification.data?.propertyId) {
+          router.push(`/property/${notification.data.propertyId}`);
+        }
+        break;
       default:
-        return '📌';
+        // Для других типов уведомлений просто показываем детали
+        break;
     }
   };
-
-  if (isLoading) {
+  
+  // Получение иконки в зависимости от типа уведомления
+  const getNotificationIcon = (type: string) => {
+    switch (type) {
+      case 'NEW_BOOKING':
+        return 'calendar';
+      case 'BOOKING_CANCELLED':
+        return 'close-circle';
+      case 'BOOKING_REMINDER':
+        return 'alarm';
+      case 'NEW_MESSAGE':
+        return 'chatbubble';
+      case 'NEW_REVIEW':
+        return 'star';
+      case 'PROPERTY_UPDATES':
+        return 'home';
+      default:
+        return 'notifications';
+    }
+  };
+  
+  // Форматирование даты с проверкой на корректность
+  const formatDate = (dateString: string): string => {
+    if (!dateString) return '';
+    
+    try {
+      const date = new Date(dateString);
+      if (isNaN(date.getTime())) {
+        return '';
+      }
+      return `${date.toLocaleDateString()} ${date.toLocaleTimeString()}`;
+    } catch (error) {
+      console.error('Ошибка при форматировании даты:', error);
+      return '';
+    }
+  };
+  
+  // Рендер элемента уведомления
+  const renderNotificationItem = ({ item }: { item: Notification }) => {
+    if (!item) return null;
+    
+    const formattedDate = formatDate(item.createdAt);
+    
+    return (
+      <TouchableOpacity
+        style={[styles.notificationItem, !item.read && styles.unreadNotification]}
+        onPress={() => handleNotificationPress(item)}
+      >
+        <View style={styles.iconContainer}>
+          <Ionicons name={getNotificationIcon(item.type)} size={24} color="#4D8EFF" />
+        </View>
+        <View style={styles.notificationContent}>
+          <Text style={styles.notificationTitle}>{item.title || 'Уведомление'}</Text>
+          <Text style={styles.notificationMessage}>{item.message || ''}</Text>
+          <Text style={styles.notificationDate}>{formattedDate}</Text>
+        </View>
+        {!item.read && <View style={styles.unreadIndicator} />}
+      </TouchableOpacity>
+    );
+  };
+  
+  if (loading && !refreshing) {
     return (
       <View style={styles.loadingContainer}>
         <ActivityIndicator size="large" color="#0066cc" />
@@ -100,30 +236,21 @@ const Notifications = () => {
     <View style={styles.container}>
       <Text style={styles.title}>Уведомления</Text>
       
-      {notifications.length === 0 ? (
+      {!notifications || notifications.length === 0 ? (
         <View style={styles.emptyContainer}>
           <Text style={styles.emptyText}>У вас нет уведомлений</Text>
         </View>
       ) : (
         <FlatList
           data={notifications}
-          keyExtractor={item => item.id}
-          renderItem={({ item }) => (
-            <TouchableOpacity
-              style={[styles.notificationItem, !item.read && styles.unreadItem]}
-              onPress={() => markAsRead(item.id)}
-            >
-              <Text style={styles.notificationIcon}>{getNotificationIcon(item.type)}</Text>
-              <View style={styles.notificationContent}>
-                <Text style={styles.notificationTitle}>{item.title}</Text>
-                <Text style={styles.notificationMessage}>{item.message}</Text>
-                <Text style={styles.notificationTime}>
-                  {new Date(item.timestamp).toLocaleString()}
-                </Text>
-              </View>
-              {!item.read && <View style={styles.unreadDot} />}
-            </TouchableOpacity>
-          )}
+          keyExtractor={item => item?.id || Math.random().toString()}
+          renderItem={renderNotificationItem}
+          refreshControl={
+            <RefreshControl
+              refreshing={refreshing}
+              onRefresh={handleRefresh}
+            />
+          }
         />
       )}
     </View>
@@ -164,11 +291,10 @@ const styles = StyleSheet.create({
     borderBottomColor: '#e0e0e0',
     alignItems: 'flex-start'
   },
-  unreadItem: {
+  unreadNotification: {
     backgroundColor: '#f0f8ff'
   },
-  notificationIcon: {
-    fontSize: 24,
+  iconContainer: {
     marginRight: 12
   },
   notificationContent: {
@@ -184,11 +310,11 @@ const styles = StyleSheet.create({
     color: '#444',
     marginBottom: 4
   },
-  notificationTime: {
+  notificationDate: {
     fontSize: 12,
     color: '#888'
   },
-  unreadDot: {
+  unreadIndicator: {
     width: 8,
     height: 8,
     borderRadius: 4,

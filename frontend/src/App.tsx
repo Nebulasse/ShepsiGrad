@@ -1,162 +1,77 @@
-import React, { useState, useEffect } from 'react';
-import { BrowserRouter as Router, Routes, Route, Link, Navigate } from 'react-router-dom';
-import PropertiesPage from './pages/PropertiesPage';
-import PropertyDetailsPage from './pages/PropertyDetailsPage';
-import MapPage from './pages/MapPage';
-import ChatPage from './pages/ChatPage';
-import AuthPage from './pages/AuthPage';
-import ProfilePage from './pages/ProfilePage';
-import FavoritesPage from './pages/FavoritesPage';
-import HomePage from './pages/HomePage';
-import ResetPasswordPage from './pages/ResetPasswordPage';
-import AuthCallback from './components/auth/AuthCallback';
-import NotificationBell from './components/notifications/NotificationBell';
-import { authService, User } from './services/authService';
-import './App.css';
+import React, { useState } from 'react';
+import { Routes, Route } from 'react-router-dom';
+import { ThemeProvider, createTheme } from '@mui/material/styles';
+import CssBaseline from '@mui/material/CssBaseline';
 
-// Компонент защищенного маршрута
-interface PrivateRouteProps {
-  children: React.ReactNode;
-}
+// Компоненты макета
+import Header from './components/layout/Header';
+import Sidebar from './components/layout/Sidebar';
+import Footer from './components/layout/Footer';
 
-const PrivateRoute: React.FC<PrivateRouteProps> = ({ children }) => {
-  const user = authService.getCurrentUser();
-  return user ? <>{children}</> : <Navigate to="/auth" />;
-};
+// Страницы
+import Dashboard from './pages/Dashboard';
+import Login from './pages/Login';
+import BookingsList from './pages/BookingsList';
+import BookingDetails from './pages/BookingDetails';
+import PropertiesList from './pages/PropertiesList';
+import PropertyDetails from './pages/PropertyDetails';
+import UsersList from './pages/UsersList';
+import UserDetails from './pages/UserDetails';
+import ReviewsList from './pages/ReviewsList';
+import NotFound from './pages/NotFound';
+
+// Контекст авторизации
+import { AuthProvider } from './contexts/AuthContext';
+
+// Стили
+import { Box } from '@mui/material';
 
 const App: React.FC = () => {
-  const [user, setUser] = useState<User | null>(null);
-  const [loading, setLoading] = useState(true);
+  const [darkMode, setDarkMode] = useState<boolean>(false);
 
-  useEffect(() => {
-    // Проверка авторизации при загрузке
-    const checkAuth = async () => {
-      try {
-        const currentUser = authService.getCurrentUser();
-        setUser(currentUser);
-      } catch (error) {
-        console.error('Ошибка при проверке авторизации:', error);
-      } finally {
-        setLoading(false);
-      }
-    };
+  const theme = createTheme({
+    palette: {
+      mode: darkMode ? 'dark' : 'light',
+      primary: {
+        main: '#1976d2',
+      },
+      secondary: {
+        main: '#dc004e',
+      },
+    },
+  });
 
-    checkAuth();
-  }, []);
-
-  const handleLogout = async () => {
-    try {
-      await authService.logout();
-      setUser(null);
-      window.location.href = '/';
-    } catch (error) {
-      console.error('Ошибка при выходе:', error);
-    }
+  const toggleDarkMode = () => {
+    setDarkMode(!darkMode);
   };
 
-  if (loading) {
-    return <div className="loading">Загрузка...</div>;
-  }
-
   return (
-    <Router>
-      <div className="app">
-        <header className="app-header">
-          <div className="header-content">
-            <Link to="/" className="logo">ShepsiGrad</Link>
-            <nav className="main-nav">
-              <ul>
-                <li><Link to="/">Главная</Link></li>
-                <li><Link to="/properties">Недвижимость</Link></li>
-                <li><Link to="/map">Карта</Link></li>
-                {user && <li><Link to="/favorites">Избранное</Link></li>}
-                {user && <li><Link to="/chats">Сообщения</Link></li>}
-              </ul>
-            </nav>
-            <div className="user-controls">
-              {user ? (
-                <>
-                  <NotificationBell />
-                  <Link to="/profile" className="profile-link">{user.full_name}</Link>
-                  <button onClick={handleLogout} className="logout-button">Выйти</button>
-                </>
-              ) : (
-                <Link to="/auth" className="auth-link">Войти</Link>
-              )}
-            </div>
-          </div>
-        </header>
-
-        <main className="app-content">
-          <Routes>
-            <Route path="/" element={<HomePage />} />
-            <Route path="/properties" element={<PropertiesPage />} />
-            <Route path="/properties/:id" element={<PropertyDetailsPage />} />
-            <Route path="/map" element={<MapPage />} />
-            <Route path="/auth" element={<AuthPage />} />
-            <Route path="/auth/callback" element={<AuthCallback />} />
-            <Route path="/reset-password" element={<ResetPasswordPage />} />
-            <Route 
-              path="/favorites" 
-              element={
-                <PrivateRoute>
-                  <FavoritesPage />
-                </PrivateRoute>
-              } 
-            />
-            <Route 
-              path="/chats" 
-              element={
-                <PrivateRoute>
-                  <ChatPage />
-                </PrivateRoute>
-              } 
-            />
-            <Route 
-              path="/chats/:chatId" 
-              element={
-                <PrivateRoute>
-                  <ChatPage />
-                </PrivateRoute>
-              } 
-            />
-            <Route 
-              path="/profile" 
-              element={
-                <PrivateRoute>
-                  <ProfilePage />
-                </PrivateRoute>
-              } 
-            />
-          </Routes>
-        </main>
-
-        <footer className="app-footer">
-          <div className="footer-content">
-            <div className="footer-section">
-              <h3>ShepsiGrad</h3>
-              <p>Сервис поиска и аренды недвижимости</p>
-            </div>
-            <div className="footer-section">
-              <h3>Навигация</h3>
-              <ul>
-                <li><Link to="/">Главная</Link></li>
-                <li><Link to="/properties">Недвижимость</Link></li>
-                <li><Link to="/map">Карта</Link></li>
-              </ul>
-            </div>
-            <div className="footer-section">
-              <h3>Контакты</h3>
-              <p>Email: info@shepsigrad.com</p>
-              <p>Телефон: +7 (123) 456-78-90</p>
-            </div>
-          </div>
-          <div className="footer-bottom">
-            <p>&copy; {new Date().getFullYear()} ShepsiGrad. Все права защищены.</p>
-          </div>
-        </footer>
-      </div>
-    </Router>
+    <ThemeProvider theme={theme}>
+      <CssBaseline />
+      <AuthProvider>
+        <Box sx={{ display: 'flex', flexDirection: 'column', minHeight: '100vh' }}>
+          <Header toggleDarkMode={toggleDarkMode} darkMode={darkMode} />
+          <Box sx={{ display: 'flex', flex: 1 }}>
+            <Sidebar />
+            <Box component="main" sx={{ flexGrow: 1, p: 3 }}>
+              <Routes>
+                <Route path="/login" element={<Login />} />
+                <Route path="/" element={<Dashboard />} />
+                <Route path="/bookings" element={<BookingsList />} />
+                <Route path="/bookings/:id" element={<BookingDetails />} />
+                <Route path="/properties" element={<PropertiesList />} />
+                <Route path="/properties/:id" element={<PropertyDetails />} />
+                <Route path="/users" element={<UsersList />} />
+                <Route path="/users/:id" element={<UserDetails />} />
+                <Route path="/reviews" element={<ReviewsList />} />
+                <Route path="*" element={<NotFound />} />
+              </Routes>
+            </Box>
+          </Box>
+          <Footer />
+        </Box>
+      </AuthProvider>
+    </ThemeProvider>
   );
 };
 

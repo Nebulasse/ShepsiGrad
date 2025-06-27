@@ -1,4 +1,5 @@
 import { apiClient } from './api';
+import { syncService, SyncEventType } from './syncService';
 
 // Интерфейс для объекта недвижимости
 export interface Property {
@@ -139,12 +140,15 @@ const PROPERTIES: Property[] = [
   },
 ];
 
+// Локальное хранилище объектов (для имитации работы с сервером)
+let propertiesStore = [...PROPERTIES];
+
 // Функция для получения всех объектов
 export const getAllProperties = async (): Promise<Property[]> => {
   // Имитация асинхронного запроса
   return new Promise((resolve) => {
     setTimeout(() => {
-      resolve(PROPERTIES);
+      resolve([...propertiesStore]);
     }, 1000);
   });
 };
@@ -154,18 +158,18 @@ export const getPropertyById = async (id: string): Promise<Property | null> => {
   // Имитация асинхронного запроса
   return new Promise((resolve) => {
     setTimeout(() => {
-      const property = PROPERTIES.find(p => p.id === id);
+      const property = propertiesStore.find(p => p.id === id);
       resolve(property || null);
     }, 500);
   });
 };
 
-// Функция для фильтрации объектов по параметрам
+// Функция для фильтрации объектов по параметрам поиска
 export const getFilteredProperties = async (params: SearchParams): Promise<Property[]> => {
   // Имитация асинхронного запроса
   return new Promise((resolve) => {
     setTimeout(() => {
-      let filtered = [...PROPERTIES];
+      let filtered = [...propertiesStore];
       
       // Фильтрация по поисковому запросу
       if (params.query) {
@@ -177,42 +181,16 @@ export const getFilteredProperties = async (params: SearchParams): Promise<Prope
         );
       }
       
-      // Фильтрация по типу жилья
+      // Фильтрация по типу недвижимости
       if (params.propertyType && params.propertyType !== 'all') {
         filtered = filtered.filter(p => p.type === params.propertyType);
       }
       
       // Фильтрация по цене
-      if (params.priceMin || params.priceMax) {
+      if (params.priceMin > 0 || params.priceMax < 20000) {
         filtered = filtered.filter(p => {
-          // Извлекаем цену из строки формата "3000 ₽/день"
-          const priceMatch = p.price.match(/(\d+)/);
-          if (!priceMatch) return true;
-          
-          const price = parseInt(priceMatch[1]);
-          
-          if (params.priceMin && price < params.priceMin) return false;
-          if (params.priceMax && price > params.priceMax) return false;
-          
-          return true;
-        });
-      }
-      
-      // Фильтрация по количеству комнат
-      if (params.rooms && params.rooms > 0) {
-        // Для демонстрации используем площадь как примерный индикатор комнат
-        filtered = filtered.filter(p => {
-          if (!p.area) return false;
-          
-          // Примерное количество комнат на основе площади
-          const estimatedRooms = Math.floor(p.area / 25);
-          
-          // Для 4+ комнат
-          if (params.rooms === 4) {
-            return estimatedRooms >= 4;
-          }
-          
-          return estimatedRooms === params.rooms;
+          const price = parseInt(p.price.replace(/[^0-9]/g, ''));
+          return price >= (params.priceMin || 0) && price <= (params.priceMax || 20000);
         });
       }
       
@@ -221,31 +199,16 @@ export const getFilteredProperties = async (params: SearchParams): Promise<Prope
         filtered = filtered.filter(p => p.rating >= params.rating);
       }
       
-      // Фильтрация по расстоянию до моря
-      if (params.distanceToSea && params.distanceToSea < 5000) {
-        filtered = filtered.filter(p => {
-          // Извлекаем расстояние из строки локации, если оно указано
-          const distanceMatch = p.location.match(/(\d+)м от моря/);
-          if (!distanceMatch) return true; // Если нет информации, включаем объект
-          
-          const distance = parseInt(distanceMatch[1]);
-          return distance <= params.distanceToSea!;
-        });
-      }
-      
       // Фильтрация по удобствам
       if (params.hasWifi) {
         filtered = filtered.filter(p => p.amenities?.includes('Wi-Fi'));
       }
-      
       if (params.hasParking) {
         filtered = filtered.filter(p => p.amenities?.includes('Парковка'));
       }
-      
       if (params.hasPool) {
         filtered = filtered.filter(p => p.amenities?.includes('Бассейн'));
       }
-      
       if (params.hasAirConditioning) {
         filtered = filtered.filter(p => p.amenities?.includes('Кондиционер'));
       }
@@ -255,63 +218,154 @@ export const getFilteredProperties = async (params: SearchParams): Promise<Prope
         switch (params.sort) {
           case 'price_asc':
             filtered.sort((a, b) => {
-              const priceA = parseInt(a.price.match(/(\d+)/)?.[1] || '0');
-              const priceB = parseInt(b.price.match(/(\d+)/)?.[1] || '0');
+              const priceA = parseInt(a.price.replace(/[^0-9]/g, ''));
+              const priceB = parseInt(b.price.replace(/[^0-9]/g, ''));
               return priceA - priceB;
             });
             break;
           case 'price_desc':
             filtered.sort((a, b) => {
-              const priceA = parseInt(a.price.match(/(\d+)/)?.[1] || '0');
-              const priceB = parseInt(b.price.match(/(\d+)/)?.[1] || '0');
+              const priceA = parseInt(a.price.replace(/[^0-9]/g, ''));
+              const priceB = parseInt(b.price.replace(/[^0-9]/g, ''));
               return priceB - priceA;
             });
             break;
           case 'rating':
             filtered.sort((a, b) => b.rating - a.rating);
             break;
-          case 'distance':
-            filtered.sort((a, b) => {
-              const distanceA = a.location.match(/(\d+)м от моря/);
-              const distanceB = b.location.match(/(\d+)м от моря/);
-              
-              const distA = distanceA ? parseInt(distanceA[1]) : 10000;
-              const distB = distanceB ? parseInt(distanceB[1]) : 10000;
-              
-              return distA - distB;
-            });
-            break;
+          // Дополнительные варианты сортировки можно добавить здесь
         }
       }
       
-      // Ограничиваем количество результатов для демонстрации
       resolve(filtered);
-    }, 1000);
+    }, 800);
   });
 };
 
-// Функция для расчета расстояния между двумя точками по координатам (формула гаверсинусов)
-export const calculateDistance = (
-  lat1: number, 
-  lon1: number, 
-  lat2: number, 
-  lon2: number
-): number => {
-  const R = 6371; // Радиус Земли в км
-  const dLat = toRad(lat2 - lat1);
-  const dLon = toRad(lon2 - lon1);
-  const a = 
-    Math.sin(dLat / 2) * Math.sin(dLat / 2) +
-    Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * 
-    Math.sin(dLon / 2) * Math.sin(dLon / 2);
-  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-  const distance = R * c; // Расстояние в км
-  return distance;
+// Функция для расчета расстояния между двумя точками (в метрах)
+export const calculateDistance = (lat1: number, lon1: number, lat2: number, lon2: number): number => {
+  const R = 6371e3; // радиус Земли в метрах
+  const φ1 = lat1 * Math.PI/180;
+  const φ2 = lat2 * Math.PI/180;
+  const Δφ = (lat2-lat1) * Math.PI/180;
+  const Δλ = (lon2-lon1) * Math.PI/180;
+
+  const a = Math.sin(Δφ/2) * Math.sin(Δφ/2) +
+          Math.cos(φ1) * Math.cos(φ2) *
+          Math.sin(Δλ/2) * Math.sin(Δλ/2);
+  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+
+  return R * c;
 };
 
-// Функция для перевода градусов в радианы
-const toRad = (value: number): number => {
-  return value * Math.PI / 180;
+// Функция для добавления нового объекта недвижимости
+export const addNewProperty = async (property: Omit<Property, 'id'>): Promise<Property> => {
+  // Генерируем уникальный ID
+  const newId = (propertiesStore.length + 1).toString();
+  
+  // Создаем новый объект
+  const newProperty: Property = {
+    id: newId,
+    ...property
+  };
+  
+  // Добавляем объект в локальное хранилище
+  propertiesStore.push(newProperty);
+  
+  // Отправляем уведомление через syncService
+  try {
+    // Имитируем задержку сервера
+    await new Promise(resolve => setTimeout(resolve, 300));
+    
+    // Отправляем событие об обновлении
+    const updateEvent = {
+      action: 'add',
+      property: newProperty
+    };
+    
+    // Уведомляем подписчиков
+    syncService.notifySubscribers(SyncEventType.PROPERTY, updateEvent);
+    
+    console.log('Добавлен новый объект недвижимости:', newProperty.title);
+    return newProperty;
+  } catch (error) {
+    console.error('Ошибка при добавлении объекта:', error);
+    throw error;
+  }
+};
+
+// Функция для обновления объекта недвижимости
+export const updateProperty = async (id: string, updates: Partial<Property>): Promise<Property | null> => {
+  // Находим объект в хранилище
+  const propertyIndex = propertiesStore.findIndex(p => p.id === id);
+  
+  if (propertyIndex === -1) {
+    return null;
+  }
+  
+  // Обновляем объект
+  const updatedProperty = {
+    ...propertiesStore[propertyIndex],
+    ...updates
+  };
+  
+  // Сохраняем обновленный объект в хранилище
+  propertiesStore[propertyIndex] = updatedProperty;
+  
+  // Отправляем уведомление через syncService
+  try {
+    // Имитируем задержку сервера
+    await new Promise(resolve => setTimeout(resolve, 300));
+    
+    // Отправляем событие об обновлении
+    const updateEvent = {
+      action: 'update',
+      property: updatedProperty
+    };
+    
+    // Уведомляем подписчиков
+    syncService.notifySubscribers(SyncEventType.PROPERTY, updateEvent);
+    
+    console.log('Обновлен объект недвижимости:', updatedProperty.title);
+    return updatedProperty;
+  } catch (error) {
+    console.error('Ошибка при обновлении объекта:', error);
+    throw error;
+  }
+};
+
+// Функция для удаления объекта недвижимости
+export const deleteProperty = async (id: string): Promise<boolean> => {
+  // Проверяем, существует ли объект
+  const propertyIndex = propertiesStore.findIndex(p => p.id === id);
+  
+  if (propertyIndex === -1) {
+    return false;
+  }
+  
+  // Удаляем объект из хранилища
+  propertiesStore = propertiesStore.filter(p => p.id !== id);
+  
+  // Отправляем уведомление через syncService
+  try {
+    // Имитируем задержку сервера
+    await new Promise(resolve => setTimeout(resolve, 300));
+    
+    // Отправляем событие об удалении
+    const deleteEvent = {
+      action: 'delete',
+      propertyId: id
+    };
+    
+    // Уведомляем подписчиков
+    syncService.notifySubscribers(SyncEventType.PROPERTY, deleteEvent);
+    
+    console.log('Удален объект недвижимости с ID:', id);
+    return true;
+  } catch (error) {
+    console.error('Ошибка при удалении объекта:', error);
+    throw error;
+  }
 };
 
 // Сервис для работы с объектами недвижимости
@@ -319,7 +373,10 @@ const propertyService = {
   getAllProperties,
   getPropertyById,
   getFilteredProperties,
-  calculateDistance
+  calculateDistance,
+  addNewProperty,
+  updateProperty,
+  deleteProperty
 };
 
 export default propertyService; 

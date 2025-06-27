@@ -7,6 +7,7 @@ import { FilterOptions } from './types/FilterOptions';
 import PropertyMapView from './components/map/PropertyMapView';
 import FilterModal from './components/property/FilterModal';
 import { useRouter } from 'expo-router';
+import { syncService, SyncEventType } from './services/syncService';
 
 // Создаем простой компонент карточки объекта недвижимости
 const PropertyCard = ({ property, onPress }: { property: Property, onPress: (id: string) => void }) => {
@@ -86,6 +87,42 @@ const SearchScreen = () => {
     };
 
     fetchProperties();
+    
+    // Инициализируем сервис синхронизации
+    syncService.initialize('tenant');
+    
+    // Подписываемся на обновления объектов недвижимости
+    const handlePropertyUpdate = (data: any) => {
+      console.log('Получено обновление объекта:', data);
+      
+      // Обновляем список объектов
+      setProperties(prevProperties => {
+        // Если объект уже есть в списке - обновляем его
+        if (data.action === 'update' && data.property) {
+          return prevProperties.map(p => 
+            p.id === data.property.id ? { ...p, ...data.property } : p
+          );
+        } 
+        // Если это новый объект - добавляем его в список
+        else if (data.action === 'add' && data.property) {
+          return [...prevProperties, data.property];
+        }
+        // Если объект удален - удаляем его из списка
+        else if (data.action === 'delete' && data.propertyId) {
+          return prevProperties.filter(p => p.id !== data.propertyId);
+        }
+        
+        return prevProperties;
+      });
+    };
+    
+    // Добавляем обработчик для событий обновления объектов
+    syncService.addSubscriber(SyncEventType.PROPERTY, handlePropertyUpdate);
+    
+    // Очистка при размонтировании
+    return () => {
+      syncService.removeSubscriber(SyncEventType.PROPERTY, handlePropertyUpdate);
+    };
   }, []);
 
   // Фильтрация объектов по поисковому запросу и фильтрам
@@ -128,7 +165,7 @@ const SearchScreen = () => {
     };
 
     applyFilters();
-  }, [searchText, filterOptions]);
+  }, [searchText, filterOptions, properties]);
 
   // Обработка изменения региона карты
   const handleRegionChange = (region: any) => {
@@ -264,6 +301,19 @@ const SearchScreen = () => {
             properties={filteredProperties} 
             initialRegion={mapRegion}
             onRegionChange={handleRegionChange}
+            onFilterChange={(mapFilters) => {
+              // Преобразуем фильтры карты в общие фильтры приложения
+              const newFilterOptions: FilterOptions = {
+                ...filterOptions,
+                priceMin: mapFilters.priceMin,
+                priceMax: mapFilters.priceMax,
+                propertyType: mapFilters.propertyType,
+                distanceToSea: mapFilters.distanceToSea,
+                rating: mapFilters.rating
+              };
+              
+              setFilterOptions(newFilterOptions);
+            }}
           />
         )}
       </View>

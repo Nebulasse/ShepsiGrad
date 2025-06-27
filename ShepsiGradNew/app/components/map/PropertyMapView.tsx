@@ -1,10 +1,11 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { StyleSheet, View, Text, TouchableOpacity, Image, Dimensions, Platform, ActivityIndicator, Modal, ScrollView, FlatList } from 'react-native';
+import { StyleSheet, View, Text, TouchableOpacity, Image, Dimensions, Platform, ActivityIndicator, Modal, ScrollView, FlatList, Switch } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import { WebView } from 'react-native-webview';
 import { Property } from '../../services/propertyService';
 import * as Location from 'expo-location';
+import Slider from '@react-native-community/slider';
 
 // Определяем тип Region для корректной работы
 interface Region {
@@ -18,6 +19,17 @@ interface PropertyMapViewProps {
   properties: Property[];
   initialRegion?: Region;
   onRegionChange?: (region: Region) => void;
+  onFilterChange?: (filters: MapFilters) => void;
+}
+
+// Интерфейс для фильтров карты
+interface MapFilters {
+  priceMin: number;
+  priceMax: number;
+  propertyType: string;
+  distanceToSea: number;
+  rating: number;
+  showOnlyWithPhotos: boolean;
 }
 
 // Компонент-заглушка для отображения, когда карта не может быть загружена
@@ -34,84 +46,96 @@ const MapPlaceholder = ({ onRetry }: { onRetry: () => void }) => (
   </View>
 );
 
-// Компонент карточки объявления
-const PropertyCard = ({ property, onClose, onPress }: { property: Property, onClose: () => void, onPress: () => void }) => {
-  return (
-    <View style={styles.propertyCardContainer}>
-      <View style={styles.propertyCard}>
-        <Image source={{ uri: property.imageUrl }} style={styles.propertyImage} />
-        <View style={styles.propertyInfo}>
-          <Text style={styles.propertyPrice}>{property.price}</Text>
-          <Text style={styles.propertyTitle}>{property.title}</Text>
-          <Text style={styles.propertyAddress}>{property.location}</Text>
-          <View style={styles.propertyDetails}>
-            <Text style={styles.propertyDetail}>1-комн.кв • {property.area} м²</Text>
-            <View style={styles.ratingContainer}>
-              <Ionicons name="star" size={14} color="#FFD700" />
-              <Text style={styles.ratingText}>{property.rating}</Text>
-            </View>
-          </View>
-          <View style={styles.cardButtons}>
-            <TouchableOpacity style={styles.callButton} onPress={() => {}}>
-              <Ionicons name="call" size={18} color="white" />
-              <Text style={styles.buttonText}>Позвонить</Text>
-            </TouchableOpacity>
-            <TouchableOpacity style={styles.messageButton} onPress={onPress}>
-              <Ionicons name="chatbubble" size={18} color="#0066CC" />
-              <Text style={styles.messageText}>Написать</Text>
-            </TouchableOpacity>
+// Компонент карточки объекта недвижимости
+const PropertyCard = ({ property, onClose, onPress }: { property: Property, onClose: () => void, onPress: () => void }) => (
+  <View style={styles.propertyCardContainer}>
+    <TouchableOpacity style={styles.propertyCard} onPress={onPress}>
+      <Image 
+        source={{ uri: property.imageUrl }} 
+        style={styles.propertyImage} 
+        resizeMode="cover"
+      />
+      <View style={styles.propertyInfo}>
+        <Text style={styles.propertyTitle}>{property.title}</Text>
+        <Text style={styles.propertyPrice}>{property.price}</Text>
+        <Text style={styles.propertyAddress}>{property.location}</Text>
+        
+        <View style={styles.propertyDetails}>
+          <Text style={styles.propertyDetail}>
+            {property.area} м² • {property.type === 'apartment' ? 'Квартира' : 'Дом'}
+          </Text>
+          <View style={styles.ratingContainer}>
+            <Ionicons name="star" size={12} color="#FFC107" />
+            <Text style={styles.ratingText}>{property.rating}</Text>
           </View>
         </View>
-        <TouchableOpacity style={styles.closeButton} onPress={onClose}>
-          <Ionicons name="close" size={24} color="#999" />
-        </TouchableOpacity>
-      </View>
-    </View>
-  );
-};
-
-// Компонент списка группы объявлений
-const PropertyGroupList = ({ properties, onClose, onSelect }: { properties: Property[], onClose: () => void, onSelect: (property: Property) => void }) => {
-  return (
-    <View style={styles.groupListContainer}>
-      <View style={styles.groupListHeader}>
-        <Text style={styles.groupListTitle}>{properties.length} объявлений в этом районе</Text>
-        <TouchableOpacity onPress={onClose}>
-          <Ionicons name="close" size={24} color="#999" />
-        </TouchableOpacity>
-      </View>
-      <FlatList
-        data={properties}
-        keyExtractor={(item) => item.id}
-        renderItem={({ item }) => (
-          <TouchableOpacity style={styles.groupListItem} onPress={() => onSelect(item)}>
-            <Image source={{ uri: item.imageUrl }} style={styles.groupItemImage} />
-            <View style={styles.groupItemInfo}>
-              <Text style={styles.groupItemPrice}>{item.price}</Text>
-              <Text style={styles.groupItemTitle}>{item.title}</Text>
-              <Text style={styles.groupItemDetail}>1-комн • {item.area} м²</Text>
-              <View style={styles.groupItemRating}>
-                <Ionicons name="star" size={12} color="#FFD700" />
-                <Text style={styles.groupItemRatingText}>{item.rating}</Text>
-              </View>
-            </View>
+        
+        <View style={styles.cardButtons}>
+          <TouchableOpacity style={styles.callButton}>
+            <Ionicons name="call" size={14} color="#fff" />
+            <Text style={styles.buttonText}>Позвонить</Text>
           </TouchableOpacity>
-        )}
-        style={styles.groupList}
-      />
-      <View style={styles.saveSearchContainer}>
-        <TouchableOpacity style={styles.saveSearchButton}>
-          <Text style={styles.saveSearchText}>Сохранить поиск</Text>
-        </TouchableOpacity>
+          <TouchableOpacity style={styles.messageButton}>
+            <Ionicons name="chatbubble-outline" size={14} color="#0066CC" />
+            <Text style={styles.messageText}>Написать</Text>
+          </TouchableOpacity>
+        </View>
       </View>
+      
+      <TouchableOpacity style={styles.closeButton} onPress={onClose}>
+        <Ionicons name="close" size={20} color="#999" />
+      </TouchableOpacity>
+    </TouchableOpacity>
+  </View>
+);
+
+// Компонент для отображения группы объектов
+const PropertyGroupList = ({ properties, onClose, onSelect }: { 
+  properties: Property[], 
+  onClose: () => void, 
+  onSelect: (property: Property) => void 
+}) => (
+  <View style={styles.propertyGroupContainer}>
+    <View style={styles.propertyGroupHeader}>
+      <Text style={styles.propertyGroupTitle}>Объекты в этом районе ({properties.length})</Text>
+      <TouchableOpacity onPress={onClose}>
+        <Ionicons name="close" size={24} color="#999" />
+      </TouchableOpacity>
     </View>
-  );
-};
+    
+    <FlatList
+      data={properties}
+      keyExtractor={(item) => item.id}
+      renderItem={({ item }) => (
+        <TouchableOpacity 
+          style={styles.propertyGroupItem}
+          onPress={() => onSelect(item)}
+        >
+          <Image 
+            source={{ uri: item.imageUrl }} 
+            style={styles.propertyGroupImage} 
+            resizeMode="cover"
+          />
+          <View style={styles.propertyGroupInfo}>
+            <Text style={styles.propertyGroupItemTitle}>{item.title}</Text>
+            <Text style={styles.propertyGroupItemPrice}>{item.price}</Text>
+            <View style={styles.propertyGroupItemRating}>
+              <Ionicons name="star" size={12} color="#FFC107" />
+              <Text style={styles.propertyGroupItemRatingText}>{item.rating}</Text>
+            </View>
+          </View>
+        </TouchableOpacity>
+      )}
+      style={styles.propertyGroupList}
+    />
+  </View>
+);
 
 const PropertyMapView: React.FC<PropertyMapViewProps> = ({
   properties,
   initialRegion,
-  onRegionChange
+  onRegionChange,
+  onFilterChange
 }) => {
   const router = useRouter();
   const [currentRegion, setCurrentRegion] = useState<Region>({
@@ -128,6 +152,16 @@ const PropertyMapView: React.FC<PropertyMapViewProps> = ({
   const [groupProperties, setGroupProperties] = useState<Property[] | null>(null);
   const [mapLoaded, setMapLoaded] = useState(false);
   const webViewRef = useRef<WebView>(null);
+  const [propertiesChanged, setPropertiesChanged] = useState(false);
+  const [showFilters, setShowFilters] = useState(false);
+  const [filters, setFilters] = useState<MapFilters>({
+    priceMin: 0,
+    priceMax: 20000,
+    propertyType: 'all',
+    distanceToSea: 5000,
+    rating: 0,
+    showOnlyWithPhotos: false
+  });
 
   // Получаем начальное местоположение пользователя
   useEffect(() => {
@@ -173,6 +207,32 @@ const PropertyMapView: React.FC<PropertyMapViewProps> = ({
     }
   }, [initialRegion]);
 
+  // Отслеживаем изменения в списке объектов
+  useEffect(() => {
+    // Если карта уже загружена, обновляем маркеры при изменении списка объектов
+    if (mapLoaded && webViewRef.current) {
+      console.log('Обновление объектов на карте');
+      setPropertiesChanged(true);
+      
+      // Отправляем новые данные в WebView
+      const validProperties = properties.filter(p => p.latitude && p.longitude);
+      webViewRef.current.injectJavaScript(`
+        try {
+          // Обновляем список объектов без перерисовки всей карты
+          if (typeof window.updatePropertiesWithoutRedraw === 'function') {
+            window.updatePropertiesWithoutRedraw(${JSON.stringify(validProperties)});
+          } else {
+            window.updateProperties(${JSON.stringify(validProperties)});
+          }
+          true;
+        } catch (e) {
+          console.error('Ошибка при обновлении объектов:', e);
+          false;
+        }
+      `);
+    }
+  }, [properties, mapLoaded]);
+
   // Обработчик нажатия на объект недвижимости
   const handlePropertyPress = (propertyId: string) => {
     const property = properties.find(p => p.id === propertyId);
@@ -205,6 +265,71 @@ const PropertyMapView: React.FC<PropertyMapViewProps> = ({
     setGroupProperties(null);
   };
 
+  // Обработчик изменения фильтров
+  const handleFilterChange = (newFilters: Partial<MapFilters>) => {
+    const updatedFilters = { ...filters, ...newFilters };
+    setFilters(updatedFilters);
+    
+    // Уведомляем родительский компонент об изменении фильтров
+    if (onFilterChange) {
+      onFilterChange(updatedFilters);
+    }
+  };
+
+  // Применение фильтров
+  const applyFilters = () => {
+    setShowFilters(false);
+    
+    // Отправляем фильтры в WebView
+    if (webViewRef.current) {
+      webViewRef.current.injectJavaScript(`
+        try {
+          if (typeof window.applyFilters === 'function') {
+            window.applyFilters(${JSON.stringify(filters)});
+          }
+          true;
+        } catch (e) {
+          console.error('Ошибка при применении фильтров:', e);
+          false;
+        }
+      `);
+    }
+  };
+
+  // Сброс фильтров
+  const resetFilters = () => {
+    const defaultFilters = {
+      priceMin: 0,
+      priceMax: 20000,
+      propertyType: 'all',
+      distanceToSea: 5000,
+      rating: 0,
+      showOnlyWithPhotos: false
+    };
+    
+    setFilters(defaultFilters);
+    
+    // Уведомляем родительский компонент о сбросе фильтров
+    if (onFilterChange) {
+      onFilterChange(defaultFilters);
+    }
+    
+    // Отправляем сброс фильтров в WebView
+    if (webViewRef.current) {
+      webViewRef.current.injectJavaScript(`
+        try {
+          if (typeof window.resetFilters === 'function') {
+            window.resetFilters();
+          }
+          true;
+        } catch (e) {
+          console.error('Ошибка при сбросе фильтров:', e);
+          false;
+        }
+      `);
+    }
+  };
+
   // Обработчик сообщений от WebView
   const handleWebViewMessage = (event: any) => {
     try {
@@ -227,9 +352,26 @@ const PropertyMapView: React.FC<PropertyMapViewProps> = ({
         handleGroupPress(data.location);
       } else if (data.type === 'mapLoaded') {
         setMapLoaded(true);
+      } else if (data.type === 'filterClick') {
+        setShowFilters(true);
       }
     } catch (error) {
       console.error('Ошибка при обработке сообщения от WebView:', error);
+    }
+  };
+
+  // Обработчик ошибок WebView
+  const handleWebViewError = () => {
+    setError(true);
+    setLoading(false);
+  };
+
+  // Повторная попытка загрузки карты
+  const retryLoadMap = () => {
+    setError(false);
+    setLoading(true);
+    if (webViewRef.current) {
+      webViewRef.current.reload();
     }
   };
 
@@ -240,6 +382,7 @@ const PropertyMapView: React.FC<PropertyMapViewProps> = ({
     
     // Преобразуем объекты в JSON для передачи в WebView
     const propertiesJSON = JSON.stringify(validProperties);
+    const filtersJSON = JSON.stringify(filters);
 
     return `
       <!DOCTYPE html>
@@ -284,6 +427,7 @@ const PropertyMapView: React.FC<PropertyMapViewProps> = ({
             border-radius: 8px;
             box-shadow: 0 2px 6px rgba(0,0,0,0.15);
             padding: 10px;
+            cursor: pointer;
           }
           .filter-button {
             display: flex;
@@ -295,10 +439,21 @@ const PropertyMapView: React.FC<PropertyMapViewProps> = ({
             font-family: Arial, sans-serif;
             box-shadow: 0 1px 3px rgba(0,0,0,0.1);
             color: #333;
-            cursor: pointer;
           }
           .filter-icon {
             margin-right: 5px;
+          }
+          .filter-badge {
+            display: inline-block;
+            background-color: #007AFF;
+            color: white;
+            border-radius: 50%;
+            width: 18px;
+            height: 18px;
+            text-align: center;
+            line-height: 18px;
+            font-size: 12px;
+            margin-left: 5px;
           }
         </style>
       </head>
@@ -307,6 +462,9 @@ const PropertyMapView: React.FC<PropertyMapViewProps> = ({
         <script>
           // Получаем данные о недвижимости
           const properties = ${propertiesJSON};
+          
+          // Получаем фильтры
+          let currentFilters = ${filtersJSON};
           
           // Группируем объекты по местоположению
           const locationGroups = {};
@@ -321,9 +479,13 @@ const PropertyMapView: React.FC<PropertyMapViewProps> = ({
           // Инициализируем карту после загрузки API
           ymaps.ready(init);
           
+          let map;
+          let objectManager;
+          let filteredProperties = [...properties]; // Копируем массив объектов
+          
           function init() {
             // Создаем карту
-            const map = new ymaps.Map('map', {
+            map = new ymaps.Map('map', {
               center: [${currentRegion.latitude}, ${currentRegion.longitude}],
               zoom: 13,
               controls: ['zoomControl']
@@ -332,6 +494,25 @@ const PropertyMapView: React.FC<PropertyMapViewProps> = ({
               yandexMapDisablePoiInteractivity: true,
               suppressMapOpenBlock: true
             });
+            
+            // Создаем менеджер объектов для эффективного отображения маркеров
+            objectManager = new ymaps.ObjectManager({
+              clusterize: true,
+              gridSize: 32,
+              clusterDisableClickZoom: false
+            });
+            
+            // Настраиваем внешний вид кластеров
+            objectManager.clusters.options.set({
+              preset: 'islands#blueClusterIcons',
+              hasBalloon: false
+            });
+            
+            // Добавляем менеджер объектов на карту
+            map.geoObjects.add(objectManager);
+            
+            // Добавляем объекты на карту
+            addPropertiesToMap(properties);
             
             // Показываем карту
             document.getElementById('map').classList.remove('map-loading');
@@ -342,77 +523,28 @@ const PropertyMapView: React.FC<PropertyMapViewProps> = ({
             // Добавляем элемент с фильтрами
             const filtersElement = document.createElement('div');
             filtersElement.className = 'filters';
+            
+            // Получаем количество активных фильтров
+            const activeFiltersCount = getActiveFiltersCount();
+            
             filtersElement.innerHTML = \`
               <div class="filter-button">
                 <span class="filter-icon">⚙️</span>
                 Фильтры
+                \${activeFiltersCount > 0 ? \`<span class="filter-badge">\${activeFiltersCount}</span>\` : ''}
               </div>
             \`;
-            document.body.appendChild(filtersElement);
             
-            // Отключаем скролл карты для улучшения UX на мобильных устройствах
-            map.behaviors.disable('scrollZoom');
-            
-            // Создаем макет для метки цены
-            const PriceLayout = ymaps.templateLayoutFactory.createClass(
-              '<div style="background: #fff; border-radius: 20px; padding: 6px 12px; font-weight: bold; box-shadow: 0 2px 5px rgba(0,0,0,0.3); border: 1px solid #ddd; color: #333; font-size: 12px; min-width: 50px; text-align: center;">$[properties.iconContent]</div>'
-            );
-            
-            // Создаем метки для каждой группы
-            Object.entries(locationGroups).forEach(([location, props]) => {
-              // Используем координаты первого объекта в группе
-              const property = props[0];
-              
-              // Создаем иконку с ценой или количеством объектов
-              const iconContent = props.length > 1 ? props.length + '+' : property.price.replace('₽/день', '');
-              
-              // Создаем метку
-              const placemark = new ymaps.Placemark(
-                [property.latitude, property.longitude],
-                {
-                  iconContent: iconContent,
-                  // Данные для идентификации группы
-                  groupLocation: location,
-                  propertyId: property.id
-                }, 
-                {
-                  // Используем кастомный макет
-                  iconLayout: PriceLayout,
-                  // Смещение метки
-                  iconOffset: [-30, -15]
-                }
-              );
-              
-              // Обработчик клика по метке
-              placemark.events.add('click', function() {
-                if (props.length > 1) {
-                  // Если группа, отправляем сообщение о клике на группу
-                  window.ReactNativeWebView.postMessage(JSON.stringify({
-                    type: 'groupClick',
-                    location: location
-                  }));
-                } else {
-                  // Если одиночный объект, отправляем его ID
-                  window.ReactNativeWebView.postMessage(JSON.stringify({
-                    type: 'markerClick',
-                    propertyId: property.id
-                  }));
-                }
-              });
-              
-              // Добавляем метку на карту
-              map.geoObjects.add(placemark);
+            // Добавляем обработчик клика на кнопку фильтров
+            filtersElement.addEventListener('click', function() {
+              window.ReactNativeWebView.postMessage(JSON.stringify({
+                type: 'filterClick'
+              }));
             });
             
-            // Создаем HTML-элемент с информацией о количестве объектов
-            const locationCountElement = document.createElement('div');
-            locationCountElement.className = 'location-group';
-            locationCountElement.innerHTML = \`
-              <div class="location-count">\${properties.length} объявлений в \${Object.keys(locationGroups).length} локациях</div>
-            \`;
-            document.body.appendChild(locationCountElement);
+            document.body.appendChild(filtersElement);
             
-            // Обработчик изменения положения карты
+            // Обработчик изменения центра карты
             map.events.add('boundschange', function() {
               const center = map.getCenter();
               window.ReactNativeWebView.postMessage(JSON.stringify({
@@ -422,22 +554,351 @@ const PropertyMapView: React.FC<PropertyMapViewProps> = ({
               }));
             });
             
-            // Обработчик начала и окончания движения карты для предотвращения мерцания
-            map.events.add('actionbegin', function() {
-              document.getElementById('map').style.opacity = '1';
+            // Обработчик клика по кластеру
+            objectManager.clusters.events.add('click', function(e) {
+              const objectId = e.get('objectId');
+              const cluster = objectManager.clusters.getById(objectId);
+              
+              if (cluster) {
+                const objects = cluster.features;
+                if (objects.length > 0) {
+                  const firstObject = objects[0];
+                  const location = firstObject.properties.location;
+                  
+                  window.ReactNativeWebView.postMessage(JSON.stringify({
+                    type: 'groupClick',
+                    location: location
+                  }));
+                }
+              }
             });
             
-            // Добавляем маркер местоположения пользователя, если доступно
-            ${userLocation ? `
-              const userPlacemark = new ymaps.Placemark(
-                [${userLocation.latitude}, ${userLocation.longitude}],
-                {},
-                {
-                  preset: 'islands#blueCircleDotIcon'
+            // Обработчик клика по объекту
+            objectManager.objects.events.add('click', function(e) {
+              const objectId = e.get('objectId');
+              const object = objectManager.objects.getById(objectId);
+              
+              if (object) {
+                window.ReactNativeWebView.postMessage(JSON.stringify({
+                  type: 'markerClick',
+                  propertyId: object.id
+                }));
+              }
+            });
+          }
+          
+          // Функция для добавления объектов на карту
+          function addPropertiesToMap(properties) {
+            const features = [];
+            
+            properties.forEach(property => {
+              if (property.latitude && property.longitude) {
+                features.push({
+                  type: 'Feature',
+                  id: property.id,
+                  geometry: {
+                    type: 'Point',
+                    coordinates: [property.latitude, property.longitude]
+                  },
+                  properties: {
+                    balloonContent: property.title,
+                    clusterCaption: property.title,
+                    hintContent: property.price,
+                    location: property.location,
+                    price: property.price,
+                    rating: property.rating,
+                    type: property.type,
+                    imageUrl: property.imageUrl
+                  },
+                  options: {
+                    preset: 'islands#blueHomeIcon'
+                  }
+                });
+              }
+            });
+            
+            objectManager.add({
+              type: 'FeatureCollection',
+              features: features
+            });
+          }
+          
+          // Функция для обновления объектов на карте
+          window.updateProperties = function(newProperties) {
+            if (!objectManager) return false;
+            
+            // Очищаем все объекты
+            objectManager.removeAll();
+            
+            // Обновляем список всех объектов
+            properties = newProperties;
+            
+            // Применяем фильтры к новому списку объектов
+            filteredProperties = filterProperties(properties, currentFilters);
+            
+            // Добавляем новые объекты
+            addPropertiesToMap(filteredProperties);
+            
+            // Обновляем группировку по местоположению
+            const newLocationGroups = {};
+            filteredProperties.forEach(property => {
+              const locationKey = property.location;
+              if (!newLocationGroups[locationKey]) {
+                newLocationGroups[locationKey] = [];
+              }
+              newLocationGroups[locationKey].push(property);
+            });
+            
+            // Обновляем глобальную переменную
+            locationGroups = newLocationGroups;
+            
+            return true;
+          }
+          
+          // Функция для обновления объектов без полной перерисовки карты
+          window.updatePropertiesWithoutRedraw = function(newProperties) {
+            if (!objectManager) return false;
+            
+            try {
+              // Обновляем список всех объектов
+              properties = newProperties;
+              
+              // Применяем фильтры к новому списку объектов
+              filteredProperties = filterProperties(properties, currentFilters);
+              
+              // Получаем текущие объекты
+              const currentObjects = objectManager.objects.getAll();
+              const currentIds = new Set(currentObjects.map(obj => obj.id));
+              
+              // Создаем множество новых ID для быстрого поиска
+              const newPropertiesMap = {};
+              const newIds = new Set();
+              
+              filteredProperties.forEach(property => {
+                if (property.id && property.latitude && property.longitude) {
+                  newIds.add(property.id);
+                  newPropertiesMap[property.id] = property;
                 }
-              );
-              map.geoObjects.add(userPlacemark);
-            ` : ''}
+              });
+              
+              // 1. Удаляем объекты, которых больше нет в новом списке
+              const objectsToRemove = [];
+              currentObjects.forEach(obj => {
+                if (!newIds.has(obj.id)) {
+                  objectsToRemove.push(obj.id);
+                }
+              });
+              
+              if (objectsToRemove.length > 0) {
+                objectManager.remove(objectsToRemove);
+              }
+              
+              // 2. Добавляем новые объекты, которых не было раньше
+              const objectsToAdd = [];
+              
+              filteredProperties.forEach(property => {
+                if (property.id && property.latitude && property.longitude && !currentIds.has(property.id)) {
+                  objectsToAdd.push({
+                    type: 'Feature',
+                    id: property.id,
+                    geometry: {
+                      type: 'Point',
+                      coordinates: [property.latitude, property.longitude]
+                    },
+                    properties: {
+                      balloonContent: property.title,
+                      clusterCaption: property.title,
+                      hintContent: property.price,
+                      location: property.location,
+                      price: property.price,
+                      rating: property.rating,
+                      type: property.type,
+                      imageUrl: property.imageUrl
+                    },
+                    options: {
+                      preset: 'islands#blueHomeIcon'
+                    }
+                  });
+                }
+              });
+              
+              if (objectsToAdd.length > 0) {
+                objectManager.add({
+                  type: 'FeatureCollection',
+                  features: objectsToAdd
+                });
+              }
+              
+              // 3. Обновляем позиции существующих объектов, если они изменились
+              currentObjects.forEach(obj => {
+                if (newIds.has(obj.id)) {
+                  const newProperty = newPropertiesMap[obj.id];
+                  
+                  // Проверяем, изменились ли координаты
+                  if (newProperty.latitude !== obj.geometry.coordinates[0] || 
+                      newProperty.longitude !== obj.geometry.coordinates[1]) {
+                    
+                    // Обновляем координаты
+                    objectManager.objects.setGeometry(obj.id, {
+                      type: 'Point',
+                      coordinates: [newProperty.latitude, newProperty.longitude]
+                    });
+                  }
+                  
+                  // Обновляем свойства, если они изменились
+                  objectManager.objects.setProperties(obj.id, {
+                    balloonContent: newProperty.title,
+                    clusterCaption: newProperty.title,
+                    hintContent: newProperty.price,
+                    location: newProperty.location,
+                    price: newProperty.price,
+                    rating: newProperty.rating,
+                    type: newProperty.type,
+                    imageUrl: newProperty.imageUrl
+                  });
+                }
+              });
+              
+              // Обновляем группировку по местоположению
+              const newLocationGroups = {};
+              filteredProperties.forEach(property => {
+                const locationKey = property.location;
+                if (!newLocationGroups[locationKey]) {
+                  newLocationGroups[locationKey] = [];
+                }
+                newLocationGroups[locationKey].push(property);
+              });
+              
+              // Обновляем глобальную переменную
+              locationGroups = newLocationGroups;
+              
+              // Перезагружаем кластеры
+              objectManager.reloadData();
+              
+              return true;
+            } catch (e) {
+              console.error('Ошибка при оптимизированном обновлении объектов:', e);
+              // Если произошла ошибка, используем обычное обновление
+              return window.updateProperties(newProperties);
+            }
+          }
+          
+          // Функция для применения фильтров
+          window.applyFilters = function(filters) {
+            currentFilters = filters;
+            
+            // Применяем фильтры к текущему списку объектов
+            filteredProperties = filterProperties(properties, filters);
+            
+            // Обновляем объекты на карте
+            window.updateProperties(properties);
+            
+            // Обновляем бейдж с количеством активных фильтров
+            updateFilterBadge();
+            
+            return true;
+          }
+          
+          // Функция для сброса фильтров
+          window.resetFilters = function() {
+            currentFilters = {
+              priceMin: 0,
+              priceMax: 20000,
+              propertyType: 'all',
+              distanceToSea: 5000,
+              rating: 0,
+              showOnlyWithPhotos: false
+            };
+            
+            // Применяем фильтры к текущему списку объектов
+            filteredProperties = filterProperties(properties, currentFilters);
+            
+            // Обновляем объекты на карте
+            window.updateProperties(properties);
+            
+            // Обновляем бейдж с количеством активных фильтров
+            updateFilterBadge();
+            
+            return true;
+          }
+          
+          // Функция для фильтрации объектов
+          function filterProperties(properties, filters) {
+            return properties.filter(property => {
+              // Фильтр по цене
+              if (filters.priceMin > 0 || filters.priceMax < 20000) {
+                const price = parseInt(property.price.replace(/[^0-9]/g, ''));
+                if (price < filters.priceMin || price > filters.priceMax) {
+                  return false;
+                }
+              }
+              
+              // Фильтр по типу жилья
+              if (filters.propertyType !== 'all' && property.type !== filters.propertyType) {
+                return false;
+              }
+              
+              // Фильтр по рейтингу
+              if (filters.rating > 0 && property.rating < filters.rating) {
+                return false;
+              }
+              
+              // Фильтр по расстоянию до моря
+              if (filters.distanceToSea < 5000) {
+                // Извлекаем расстояние из строки локации, если оно указано
+                const distanceMatch = property.location.match(/(\d+)м от моря/);
+                if (distanceMatch) {
+                  const distance = parseInt(distanceMatch[1]);
+                  if (distance > filters.distanceToSea) {
+                    return false;
+                  }
+                }
+              }
+              
+              // Фильтр по наличию фото
+              if (filters.showOnlyWithPhotos && (!property.imageUrl || property.imageUrl === '')) {
+                return false;
+              }
+              
+              return true;
+            });
+          }
+          
+          // Функция для получения количества активных фильтров
+          function getActiveFiltersCount() {
+            let count = 0;
+            
+            if (currentFilters.priceMin > 0) count++;
+            if (currentFilters.priceMax < 20000) count++;
+            if (currentFilters.propertyType !== 'all') count++;
+            if (currentFilters.rating > 0) count++;
+            if (currentFilters.distanceToSea < 5000) count++;
+            if (currentFilters.showOnlyWithPhotos) count++;
+            
+            return count;
+          }
+          
+          // Функция для обновления бейджа с количеством активных фильтров
+          function updateFilterBadge() {
+            const filtersElement = document.querySelector('.filters');
+            if (!filtersElement) return;
+            
+            const activeFiltersCount = getActiveFiltersCount();
+            
+            filtersElement.innerHTML = \`
+              <div class="filter-button">
+                <span class="filter-icon">⚙️</span>
+                Фильтры
+                \${activeFiltersCount > 0 ? \`<span class="filter-badge">\${activeFiltersCount}</span>\` : ''}
+              </div>
+            \`;
+            
+            // Добавляем обработчик клика на кнопку фильтров
+            filtersElement.addEventListener('click', function() {
+              window.ReactNativeWebView.postMessage(JSON.stringify({
+                type: 'filterClick'
+              }));
+            });
           }
         </script>
       </body>
@@ -445,25 +906,163 @@ const PropertyMapView: React.FC<PropertyMapViewProps> = ({
     `;
   };
 
-  // Обработчик ошибки загрузки WebView
-  const handleWebViewError = () => {
-    setError(true);
-    setLoading(false);
-  };
-
-  // Повторная попытка загрузки карты
-  const retryLoadMap = () => {
-    setError(false);
-    setLoading(true);
-    // Пересоздаем WebView, обновляя ключ
-    setTimeout(() => setLoading(false), 500);
-  };
-
   // Закрытие всех всплывающих элементов
   const handleCloseAll = () => {
     setSelectedProperty(null);
     setGroupProperties(null);
   };
+
+  // Компонент фильтров
+  const FiltersModal = () => (
+    <Modal
+      visible={showFilters}
+      animationType="slide"
+      transparent={true}
+      onRequestClose={() => setShowFilters(false)}
+    >
+      <View style={styles.filterModalContainer}>
+        <View style={styles.filterModalContent}>
+          <View style={styles.filterHeader}>
+            <Text style={styles.filterTitle}>Фильтры</Text>
+            <TouchableOpacity onPress={() => setShowFilters(false)}>
+              <Ionicons name="close" size={24} color="#333" />
+            </TouchableOpacity>
+          </View>
+          
+          <ScrollView style={styles.filterScrollView}>
+            {/* Фильтр по цене */}
+            <View style={styles.filterSection}>
+              <Text style={styles.filterSectionTitle}>Цена (₽/день)</Text>
+              <View style={styles.priceInputContainer}>
+                <Text style={styles.priceLabel}>От {filters.priceMin}</Text>
+                <Text style={styles.priceLabel}>До {filters.priceMax}</Text>
+              </View>
+              <Slider
+                style={styles.slider}
+                minimumValue={0}
+                maximumValue={20000}
+                step={500}
+                value={filters.priceMin}
+                onValueChange={(value) => handleFilterChange({ priceMin: value })}
+                minimumTrackTintColor="#007AFF"
+                maximumTrackTintColor="#ddd"
+              />
+              <Slider
+                style={styles.slider}
+                minimumValue={0}
+                maximumValue={20000}
+                step={500}
+                value={filters.priceMax}
+                onValueChange={(value) => handleFilterChange({ priceMax: value })}
+                minimumTrackTintColor="#007AFF"
+                maximumTrackTintColor="#ddd"
+              />
+            </View>
+            
+            {/* Фильтр по типу жилья */}
+            <View style={styles.filterSection}>
+              <Text style={styles.filterSectionTitle}>Тип жилья</Text>
+              <View style={styles.propertyTypeContainer}>
+                {['all', 'apartment', 'house', 'villa', 'room'].map((type) => (
+                  <TouchableOpacity
+                    key={type}
+                    style={[
+                      styles.propertyTypeButton,
+                      filters.propertyType === type && styles.propertyTypeButtonActive
+                    ]}
+                    onPress={() => handleFilterChange({ propertyType: type })}
+                  >
+                    <Text 
+                      style={[
+                        styles.propertyTypeText,
+                        filters.propertyType === type && styles.propertyTypeTextActive
+                      ]}
+                    >
+                      {type === 'all' ? 'Все' : 
+                       type === 'apartment' ? 'Квартиры' :
+                       type === 'house' ? 'Дома' :
+                       type === 'villa' ? 'Виллы' : 'Комнаты'}
+                    </Text>
+                  </TouchableOpacity>
+                ))}
+              </View>
+            </View>
+            
+            {/* Фильтр по расстоянию до моря */}
+            <View style={styles.filterSection}>
+              <Text style={styles.filterSectionTitle}>Расстояние до моря (м)</Text>
+              <Text style={styles.distanceValue}>До {filters.distanceToSea} м</Text>
+              <Slider
+                style={styles.slider}
+                minimumValue={100}
+                maximumValue={5000}
+                step={100}
+                value={filters.distanceToSea}
+                onValueChange={(value) => handleFilterChange({ distanceToSea: value })}
+                minimumTrackTintColor="#007AFF"
+                maximumTrackTintColor="#ddd"
+              />
+            </View>
+            
+            {/* Фильтр по рейтингу */}
+            <View style={styles.filterSection}>
+              <Text style={styles.filterSectionTitle}>Минимальный рейтинг</Text>
+              <View style={styles.ratingContainer}>
+                {[0, 3, 3.5, 4, 4.5, 5].map((rating) => (
+                  <TouchableOpacity
+                    key={rating}
+                    style={[
+                      styles.ratingButton,
+                      filters.rating === rating && styles.ratingButtonActive
+                    ]}
+                    onPress={() => handleFilterChange({ rating })}
+                  >
+                    <Text 
+                      style={[
+                        styles.ratingButtonText,
+                        filters.rating === rating && styles.ratingButtonTextActive
+                      ]}
+                    >
+                      {rating === 0 ? 'Любой' : rating}
+                    </Text>
+                  </TouchableOpacity>
+                ))}
+              </View>
+            </View>
+            
+            {/* Фильтр по наличию фото */}
+            <View style={styles.filterSection}>
+              <View style={styles.switchContainer}>
+                <Text style={styles.filterSectionTitle}>Только с фото</Text>
+                <Switch
+                  value={filters.showOnlyWithPhotos}
+                  onValueChange={(value) => handleFilterChange({ showOnlyWithPhotos: value })}
+                  trackColor={{ false: '#ddd', true: '#007AFF' }}
+                  thumbColor="#fff"
+                />
+              </View>
+            </View>
+          </ScrollView>
+          
+          <View style={styles.filterActions}>
+            <TouchableOpacity 
+              style={styles.resetButton}
+              onPress={resetFilters}
+            >
+              <Text style={styles.resetButtonText}>Сбросить</Text>
+            </TouchableOpacity>
+            
+            <TouchableOpacity 
+              style={styles.applyButton}
+              onPress={applyFilters}
+            >
+              <Text style={styles.applyButtonText}>Применить</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </View>
+    </Modal>
+  );
 
   if (loading) {
     return (
@@ -527,6 +1126,9 @@ const PropertyMapView: React.FC<PropertyMapViewProps> = ({
           onSelect={handleSelectFromGroup}
         />
       )}
+
+      {/* Компонент фильтров */}
+      <FiltersModal />
     </View>
   );
 };
@@ -803,7 +1405,196 @@ const styles = StyleSheet.create({
     color: 'white',
     fontSize: 14,
     fontWeight: '600',
-  }
+  },
+  propertyGroupContainer: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    bottom: 0,
+    backgroundColor: 'white',
+    borderTopLeftRadius: 16,
+    borderTopRightRadius: 16,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: -2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+    elevation: 5,
+    maxHeight: height * 0.7,
+  },
+  propertyGroupHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    padding: 16,
+    borderBottomWidth: 1,
+    borderBottomColor: '#eee',
+  },
+  propertyGroupTitle: {
+    fontSize: 16,
+    fontWeight: 'bold',
+    color: '#333',
+  },
+  propertyGroupItem: {
+    flexDirection: 'row',
+    padding: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: '#eee',
+  },
+  propertyGroupImage: {
+    width: 80,
+    height: 80,
+    borderRadius: 8,
+    marginRight: 12,
+  },
+  propertyGroupInfo: {
+    flex: 1,
+    justifyContent: 'center',
+  },
+  propertyGroupItemTitle: {
+    fontSize: 14,
+    color: '#333',
+    marginBottom: 4,
+  },
+  propertyGroupItemPrice: {
+    fontSize: 15,
+    fontWeight: 'bold',
+    color: '#333',
+    marginBottom: 4,
+  },
+  propertyGroupItemRating: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  propertyGroupItemRatingText: {
+    fontSize: 12,
+    color: '#333',
+    marginLeft: 4,
+  },
+  propertyGroupList: {
+    maxHeight: height * 0.5,
+  },
+  filterModalContainer: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  filterModalContent: {
+    backgroundColor: 'white',
+    borderRadius: 16,
+    padding: 20,
+    width: '90%',
+    maxHeight: '80%',
+  },
+  filterHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 16,
+  },
+  filterTitle: {
+    fontSize: 18,
+    fontWeight: 'bold',
+    color: '#333',
+  },
+  filterScrollView: {
+    flex: 1,
+  },
+  filterSection: {
+    marginBottom: 20,
+  },
+  filterSectionTitle: {
+    fontSize: 16,
+    fontWeight: 'bold',
+    color: '#333',
+    marginBottom: 8,
+  },
+  priceInputContainer: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+  priceLabel: {
+    fontSize: 14,
+    color: '#666',
+  },
+  slider: {
+    flex: 1,
+  },
+  propertyTypeContainer: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+  },
+  propertyTypeButton: {
+    padding: 8,
+    borderWidth: 1,
+    borderColor: '#ddd',
+    borderRadius: 6,
+  },
+  propertyTypeButtonActive: {
+    borderColor: '#007AFF',
+  },
+  propertyTypeText: {
+    fontSize: 14,
+    color: '#333',
+  },
+  propertyTypeTextActive: {
+    fontWeight: 'bold',
+  },
+  distanceValue: {
+    fontSize: 14,
+    color: '#666',
+    marginBottom: 8,
+  },
+  ratingContainer: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+  },
+  ratingButton: {
+    padding: 8,
+    borderWidth: 1,
+    borderColor: '#ddd',
+    borderRadius: 6,
+  },
+  ratingButtonActive: {
+    borderColor: '#007AFF',
+  },
+  ratingButtonText: {
+    fontSize: 14,
+    color: '#333',
+  },
+  ratingButtonTextActive: {
+    fontWeight: 'bold',
+  },
+  switchContainer: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+  filterActions: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginTop: 20,
+  },
+  resetButton: {
+    backgroundColor: '#F0F0F0',
+    padding: 12,
+    borderRadius: 6,
+  },
+  resetButtonText: {
+    fontSize: 14,
+    color: '#333',
+  },
+  applyButton: {
+    backgroundColor: '#007AFF',
+    padding: 12,
+    borderRadius: 6,
+  },
+  applyButtonText: {
+    fontSize: 14,
+    color: 'white',
+  },
 });
 
 export default PropertyMapView;

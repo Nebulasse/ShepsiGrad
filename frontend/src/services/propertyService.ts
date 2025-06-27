@@ -1,77 +1,124 @@
-import { Property, PropertyFilters } from '../types/property';
-import { API_URL as BASE_API_URL } from '../config';
+import api from './api';
 
-const API_URL = `${BASE_API_URL}/properties`;
+export interface Property {
+  id: string;
+  title: string;
+  description: string;
+  address: string;
+  city: string;
+  country: string;
+  price: number;
+  bedrooms: number;
+  bathrooms: number;
+  maxGuests: number;
+  status: 'pending' | 'approved' | 'rejected';
+  owner: {
+    id: string;
+    name: string;
+    email: string;
+  };
+  images: string[];
+  createdAt: string;
+  updatedAt: string;
+}
 
-export const propertyService = {
-  async getProperties(filters?: PropertyFilters): Promise<{
-    properties: Property[];
-    pagination: {
-      total: number;
-      page: number;
-      limit: number;
-      pages: number;
-    };
-  }> {
-    const queryParams = new URLSearchParams();
-    if (filters) {
-      Object.entries(filters).forEach(([key, value]) => {
-        if (value !== undefined && value !== null) {
-          queryParams.append(key, value.toString());
-        }
-      });
+export interface PropertyFilters {
+  status?: string;
+  city?: string;
+  country?: string;
+  minPrice?: number;
+  maxPrice?: number;
+  bedrooms?: number;
+  bathrooms?: number;
+  page?: number;
+  limit?: number;
+}
+
+export interface PropertyResponse {
+  properties: Property[];
+  totalCount: number;
+  page: number;
+  totalPages: number;
+}
+
+const propertyService = {
+  /**
+   * Получить все объекты недвижимости с фильтрацией
+   */
+  async getAllProperties(filters: PropertyFilters = {}): Promise<PropertyResponse> {
+    try {
+      const response = await api.get('/properties', { params: filters });
+      return response.data;
+    } catch (error) {
+      console.error('Ошибка при получении объектов недвижимости:', error);
+      throw error;
     }
-
-    const response = await fetch(`${API_URL}?${queryParams.toString()}`);
-    if (!response.ok) {
-      throw new Error('Ошибка при загрузке объектов недвижимости');
-    }
-    const data = await response.json();
-    return data;
   },
 
+  /**
+   * Получить объект недвижимости по ID
+   */
   async getPropertyById(id: string): Promise<Property> {
-    const response = await fetch(`${API_URL}/${id}`);
-    if (!response.ok) {
-      throw new Error('Ошибка при загрузке объекта недвижимости');
+    try {
+      const response = await api.get(`/properties/${id}`);
+      return response.data;
+    } catch (error) {
+      console.error(`Ошибка при получении объекта недвижимости с ID ${id}:`, error);
+      throw error;
     }
-    return response.json();
   },
 
-  async createProperty(property: Omit<Property, 'id' | 'createdAt' | 'updatedAt'>): Promise<Property> {
-    const response = await fetch(API_URL, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify(property),
-    });
-    if (!response.ok) {
-      throw new Error('Ошибка при создании объекта недвижимости');
+  /**
+   * Подтвердить объект недвижимости
+   */
+  async approveProperty(id: string): Promise<Property> {
+    try {
+      const response = await api.patch(`/properties/${id}/approve`);
+      return response.data;
+    } catch (error) {
+      console.error(`Ошибка при подтверждении объекта недвижимости с ID ${id}:`, error);
+      throw error;
     }
-    return response.json();
   },
 
-  async updateProperty(id: string, property: Partial<Property>): Promise<Property> {
-    const response = await fetch(`${API_URL}/${id}`, {
-      method: 'PUT',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify(property),
-    });
-    if (!response.ok) {
-      throw new Error('Ошибка при обновлении объекта недвижимости');
+  /**
+   * Отклонить объект недвижимости
+   */
+  async rejectProperty(id: string, reason: string): Promise<Property> {
+    try {
+      const response = await api.patch(`/properties/${id}/reject`, { reason });
+      return response.data;
+    } catch (error) {
+      console.error(`Ошибка при отклонении объекта недвижимости с ID ${id}:`, error);
+      throw error;
     }
-    return response.json();
   },
 
-  async deleteProperty(id: string): Promise<void> {
-    const response = await fetch(`${API_URL}/${id}`, {
-      method: 'DELETE',
-    });
-    if (!response.ok) {
-      throw new Error('Ошибка при удалении объекта недвижимости');
+  /**
+   * Получить статистику по объектам недвижимости
+   */
+  async getPropertyStats(): Promise<any> {
+    try {
+      const response = await api.get('/properties/stats');
+      return response.data;
+    } catch (error) {
+      console.error('Ошибка при получении статистики по объектам недвижимости:', error);
+      throw error;
     }
   },
-}; 
+
+  /**
+   * Получить объекты недвижимости, требующие модерации
+   */
+  async getPropertiesForModeration(): Promise<Property[]> {
+    try {
+      const response = await api.get('/properties/moderation');
+      return response.data;
+    } catch (error) {
+      console.error('Ошибка при получении объектов для модерации:', error);
+      throw error;
+    }
+  }
+};
+
+export default propertyService; 

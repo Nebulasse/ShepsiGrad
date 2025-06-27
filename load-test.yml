@@ -1,0 +1,53 @@
+config:
+  target: "http://localhost:3000"
+  phases:
+    - duration: 60
+      arrivalRate: 5
+      rampTo: 20
+      name: "Нарастающая нагрузка"
+  defaults:
+    headers:
+      Content-Type: "application/json"
+      Accept: "application/json"
+
+scenarios:
+  - name: "Поиск объектов недвижимости"
+    flow:
+      - get:
+          url: "/api/properties?limit=10"
+          expect:
+            - statusCode: 200
+            
+  - name: "Авторизация и просмотр профиля"
+    weight: 3
+    flow:
+      - post:
+          url: "/api/auth/login"
+          json:
+            email: "test@example.com"
+            password: "password123"
+          capture:
+            - json: "$.token"
+              as: "token"
+      - get:
+          url: "/api/users/profile"
+          headers:
+            Authorization: "Bearer {{ token }}"
+          expect:
+            - statusCode: 200
+            
+  - name: "WebSocket соединение"
+    engine: "socketio"
+    flow:
+      - connect:
+          query:
+            token: "test-token"
+            appType: "tenant"
+      - think: 2
+      - emit:
+          channel: "private_message"
+          data:
+            to: "landlord-user-id"
+            message: "Тестовое сообщение"
+      - think: 3
+      - disconnect: {} 

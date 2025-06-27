@@ -50,12 +50,38 @@ class SyncService {
 
   private startSync() {
     console.log(`Запуск синхронизации для ${this.appType}`);
-    // Здесь код для начала синхронизации с сервером
+    
+    // Создаем сокет-соединение, если оно еще не создано
+    if (!this.socket) {
+      try {
+        this.socket = io(API_URL.replace('/api', ''), {
+          transports: ['websocket'],
+          reconnection: true,
+          reconnectionAttempts: 5,
+          reconnectionDelay: 1000,
+          query: {
+            appType: this.appType
+          }
+        });
+        
+        // Настраиваем обработчики событий
+        this.setupSocketHandlers();
+        
+        console.log('Сокет-соединение инициализировано');
+      } catch (error) {
+        console.error('Ошибка при создании сокет-соединения:', error);
+      }
+    }
   }
 
   private stopSync() {
     console.log('Остановка синхронизации');
-    // Здесь код для остановки синхронизации
+    
+    if (this.socket) {
+      this.socket.disconnect();
+      this.isConnected = false;
+      console.log('Сокет-соединение закрыто');
+    }
   }
 
   // Настройка обработчиков событий сокета
@@ -112,7 +138,7 @@ class SyncService {
   }
 
   // Уведомление подписчиков о событии
-  private notifySubscribers(eventType: SyncEventType, data: any): void {
+  notifySubscribers(eventType: SyncEventType, data: any): void {
     const subscribers = this.subscriptions.get(eventType);
     
     if (subscribers) {
@@ -194,20 +220,22 @@ class SyncService {
     });
   }
 
-  // Добавление подписчика
-  private addSubscriber(eventType: SyncEventType, callback: Function): void {
+  // Публичный метод для добавления подписчика
+  addSubscriber(eventType: SyncEventType, callback: Function): void {
     if (!this.subscriptions.has(eventType)) {
       this.subscriptions.set(eventType, new Set());
     }
     
     this.subscriptions.get(eventType)?.add(callback);
+    console.log(`Добавлен подписчик для события ${eventType}`);
   }
 
-  // Удаление подписчика
-  private removeSubscriber(eventType: SyncEventType, callback: Function): void {
+  // Публичный метод для удаления подписчика
+  removeSubscriber(eventType: SyncEventType, callback: Function): void {
     const subscribers = this.subscriptions.get(eventType);
     if (subscribers) {
       subscribers.delete(callback);
+      console.log(`Удален подписчик для события ${eventType}`);
     }
   }
 }

@@ -1,8 +1,61 @@
 // Мок для AsyncStorage
-jest.mock('@react-native-async-storage/async-storage', () => require('./__tests__/mocks/mockAsyncStorage').default);
+jest.mock('@react-native-async-storage/async-storage', () => {
+  const mockStorage = {};
+  
+  return {
+    getItem: jest.fn((key) => Promise.resolve(mockStorage[key] || null)),
+    setItem: jest.fn((key, value) => {
+      mockStorage[key] = value;
+      return Promise.resolve();
+    }),
+    removeItem: jest.fn((key) => {
+      delete mockStorage[key];
+      return Promise.resolve();
+    }),
+    clear: jest.fn(() => {
+      Object.keys(mockStorage).forEach(key => delete mockStorage[key]);
+      return Promise.resolve();
+    }),
+    getAllKeys: jest.fn(() => Promise.resolve(Object.keys(mockStorage))),
+    multiGet: jest.fn((keys) => {
+      return Promise.resolve(keys.map(key => [key, mockStorage[key] || null]));
+    }),
+    multiSet: jest.fn((keyValuePairs) => {
+      keyValuePairs.forEach(([key, value]) => {
+        mockStorage[key] = value;
+      });
+      return Promise.resolve();
+    }),
+    multiRemove: jest.fn((keys) => {
+      keys.forEach(key => delete mockStorage[key]);
+      return Promise.resolve();
+    })
+  };
+});
 
 // Мок для expo-router
-jest.mock('expo-router', () => require('./__tests__/mocks/mockExpoRouter').default);
+jest.mock('expo-router', () => {
+  const mockRouter = {
+    push: jest.fn(),
+    replace: jest.fn(),
+    back: jest.fn(),
+    setParams: jest.fn(),
+    canGoBack: jest.fn().mockReturnValue(true),
+    navigate: jest.fn(),
+  };
+
+  return {
+    useRouter: jest.fn(() => mockRouter),
+    useLocalSearchParams: jest.fn(() => ({
+      id: 'test-id',
+      propertyId: 'property-test-id',
+    })),
+    useSegments: jest.fn(() => ['']),
+    Link: ({ children }) => children,
+    Stack: { Screen: ({ children }) => children },
+    Tabs: { Screen: ({ children }) => children },
+  };
+});
 
 // Мок для Expo Font
 jest.mock('expo-font', () => ({
@@ -81,5 +134,14 @@ jest.spyOn(console, 'error').mockImplementation(() => {});
 // Настройка для React Native
 global.__reanimatedWorkletInit = jest.fn();
 
-// Инициализация AsyncStorage для тестов
-require('./__tests__/mocks/mockAsyncStorage').default.setup(); 
+// Инициализация данных для тестов
+const mockStorage = require('@react-native-async-storage/async-storage');
+if (mockStorage.setItem) {
+  mockStorage.setItem('userToken', 'test-token');
+  mockStorage.setItem('user', JSON.stringify({
+    id: 'user123',
+    email: 'test@example.com',
+    name: 'Test User',
+    role: 'user'
+  }));
+} 

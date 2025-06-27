@@ -7,9 +7,13 @@ interface ApiOptions {
   body?: any;
 }
 
+// Для хранения токена в памяти
+let authToken: string | null = null;
+
 // Базовая функция для выполнения API запросов
 async function apiRequest(endpoint: string, options: ApiOptions = {}) {
-  const token = await AsyncStorage.getItem('auth_token');
+  // Используем токен из памяти или из хранилища
+  const token = authToken || await AsyncStorage.getItem('auth_token');
   
   const headers: Record<string, string> = {
     'Content-Type': 'application/json',
@@ -37,7 +41,7 @@ async function apiRequest(endpoint: string, options: ApiOptions = {}) {
       const refreshed = await refreshToken();
       if (refreshed) {
         // Повторяем запрос с новым токеном
-        const newToken = await AsyncStorage.getItem('auth_token');
+        const newToken = authToken || await AsyncStorage.getItem('auth_token');
         headers.Authorization = `Bearer ${newToken}`;
         const retryResponse = await fetch(`${config.apiUrl}${endpoint}`, {
           ...requestOptions,
@@ -115,6 +119,11 @@ async function refreshToken() {
 
 // API методы
 export const api = {
+  // Метод для установки токена авторизации
+  setAuthToken: (token: string | null) => {
+    authToken = token;
+  },
+
   get: (endpoint: string, params?: Record<string, any>) => {
     const url = params 
       ? `${endpoint}?${new URLSearchParams(params as any).toString()}` 

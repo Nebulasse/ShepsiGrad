@@ -1,534 +1,925 @@
-import React, { useState } from 'react';
-import { 
-  View, 
-  Text, 
-  StyleSheet, 
-  ScrollView, 
-  TextInput, 
-  TouchableOpacity,
-  ActivityIndicator,
-  Alert,
-  Image
-} from 'react-native';
+import React, { useState, useEffect } from 'react';
+import { StyleSheet, View, Text, TextInput, TouchableOpacity, ScrollView, Image, Switch, Alert, ActivityIndicator } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import { Stack, useRouter } from 'expo-router';
-import { Formik } from 'formik';
-import * as Yup from 'yup';
+import { Ionicons, MaterialIcons, FontAwesome5 } from '@expo/vector-icons';
 import * as ImagePicker from 'expo-image-picker';
-import { propertyService, PropertyFormData } from '../services/propertyService';
+import { propertyService } from '../services/propertyService';
 
-// Схема валидации формы
-const PropertySchema = Yup.object().shape({
-  title: Yup.string()
-    .required('Название обязательно')
-    .min(5, 'Название должно быть не менее 5 символов'),
-  description: Yup.string()
-    .required('Описание обязательно')
-    .min(20, 'Описание должно быть не менее 20 символов'),
-  address: Yup.string()
-    .required('Адрес обязателен'),
-  price: Yup.number()
-    .required('Цена обязательна')
-    .positive('Цена должна быть положительной'),
-  priceUnit: Yup.string()
-    .required('Единица измерения цены обязательна')
-    .oneOf(['day', 'night', 'month'], 'Некорректная единица измерения'),
-  rooms: Yup.number()
-    .required('Количество комнат обязательно')
-    .min(1, 'Должна быть хотя бы одна комната')
-    .integer('Количество комнат должно быть целым числом'),
-  beds: Yup.number()
-    .required('Количество спальных мест обязательно')
-    .min(1, 'Должно быть хотя бы одно спальное место')
-    .integer('Количество спальных мест должно быть целым числом'),
-  bathrooms: Yup.number()
-    .required('Количество ванных комнат обязательно')
-    .min(1, 'Должна быть хотя бы одна ванная комната')
-    .integer('Количество ванных комнат должно быть целым числом'),
-  maxGuests: Yup.number()
-    .required('Максимальное количество гостей обязательно')
-    .min(1, 'Должен быть хотя бы один гость')
-    .integer('Количество гостей должно быть целым числом'),
-});
+// Типы для объекта недвижимости
+interface PropertyFormData {
+  title: string;
+  description: string;
+  price: string;
+  address: string;
+  city: string;
+  type: string;
+  bedrooms: string;
+  bathrooms: string;
+  area: string;
+  amenities: string[];
+  rules: string[];
+  images: string[];
+  isActive: boolean;
+  instantBooking: boolean;
+}
 
-// Начальные значения формы
-const initialValues: PropertyFormData = {
-  title: '',
-  description: '',
-  address: '',
-  price: 0,
-  priceUnit: 'day',
-  rooms: 1,
-  beds: 1,
-  bathrooms: 1,
-  maxGuests: 1,
-  amenities: [],
-};
+// Типы для удобств
+interface AmenityOption {
+  id: string;
+  name: string;
+  icon: string;
+}
 
-// Список удобств
-const amenitiesList = [
-  'Wi-Fi',
-  'Кондиционер',
-  'Отопление',
-  'Кухня',
-  'Стиральная машина',
-  'Телевизор',
-  'Утюг',
-  'Фен',
-  'Парковка',
-  'Бассейн',
-];
+// Типы для правил
+interface RuleOption {
+  id: string;
+  name: string;
+  icon: string;
+}
 
+// Компонент страницы добавления объекта
 export default function AddPropertyScreen() {
   const router = useRouter();
-  const [images, setImages] = useState<string[]>([]);
-  const [isSubmitting, setIsSubmitting] = useState(false);
-
-  // Выбор изображений из галереи
-  const pickImages = async () => {
-    const result = await ImagePicker.launchImageLibraryAsync({
-      mediaTypes: ImagePicker.MediaTypeOptions.Images,
-      allowsEditing: false,
-      allowsMultipleSelection: true,
-      quality: 0.8,
-      aspect: [16, 9],
+  const [loading, setLoading] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
+  const [currentStep, setCurrentStep] = useState(1);
+  const totalSteps = 4;
+  
+  // Состояние формы
+  const [formData, setFormData] = useState<PropertyFormData>({
+    title: '',
+    description: '',
+    price: '',
+    address: '',
+    city: '',
+    type: 'apartment',
+    bedrooms: '1',
+    bathrooms: '1',
+    area: '',
+    amenities: [],
+    rules: [],
+    images: [],
+    isActive: true,
+    instantBooking: false,
+  });
+  
+  // Опции для типов недвижимости
+  const propertyTypes = [
+    { id: 'apartment', name: 'Квартира', icon: 'apartment' },
+    { id: 'house', name: 'Дом', icon: 'home' },
+    { id: 'villa', name: 'Вилла', icon: 'villa' },
+    { id: 'hotel', name: 'Отель', icon: 'hotel' },
+    { id: 'hostel', name: 'Хостел', icon: 'business' },
+  ];
+  
+  // Опции для удобств
+  const amenityOptions: AmenityOption[] = [
+    { id: 'wifi', name: 'Wi-Fi', icon: 'wifi' },
+    { id: 'parking', name: 'Парковка', icon: 'car' },
+    { id: 'pool', name: 'Бассейн', icon: 'water' },
+    { id: 'aircon', name: 'Кондиционер', icon: 'snow' },
+    { id: 'tv', name: 'Телевизор', icon: 'tv' },
+    { id: 'kitchen', name: 'Кухня', icon: 'restaurant' },
+    { id: 'washer', name: 'Стиральная машина', icon: 'water-outline' },
+    { id: 'gym', name: 'Спортзал', icon: 'barbell' },
+    { id: 'elevator', name: 'Лифт', icon: 'arrow-up' },
+    { id: 'heating', name: 'Отопление', icon: 'thermometer' },
+  ];
+  
+  // Опции для правил
+  const ruleOptions: RuleOption[] = [
+    { id: 'no_smoking', name: 'Не курить', icon: 'smoking-ban' },
+    { id: 'no_pets', name: 'Без животных', icon: 'paw' },
+    { id: 'no_parties', name: 'Без вечеринок', icon: 'glass-cheers' },
+    { id: 'quiet_hours', name: 'Тихие часы', icon: 'volume-mute' },
+    { id: 'check_in_time', name: 'Заезд после 14:00', icon: 'clock' },
+    { id: 'check_out_time', name: 'Выезд до 12:00', icon: 'clock' },
+  ];
+  
+  // Обработчик изменения полей формы
+  const handleChange = (field: keyof PropertyFormData, value: any) => {
+    setFormData(prev => ({ ...prev, [field]: value }));
+  };
+  
+  // Обработчик переключения удобств
+  const toggleAmenity = (amenityId: string) => {
+    setFormData(prev => {
+      if (prev.amenities.includes(amenityId)) {
+        return { ...prev, amenities: prev.amenities.filter(id => id !== amenityId) };
+      } else {
+        return { ...prev, amenities: [...prev.amenities, amenityId] };
+      }
     });
-
-    if (!result.canceled) {
-      const selectedImages = result.assets.map(asset => asset.uri);
-      setImages([...images, ...selectedImages]);
-    }
   };
-
-  // Удаление изображения
-  const removeImage = (index: number) => {
-    const newImages = [...images];
-    newImages.splice(index, 1);
-    setImages(newImages);
+  
+  // Обработчик переключения правил
+  const toggleRule = (ruleId: string) => {
+    setFormData(prev => {
+      if (prev.rules.includes(ruleId)) {
+        return { ...prev, rules: prev.rules.filter(id => id !== ruleId) };
+      } else {
+        return { ...prev, rules: [...prev.rules, ruleId] };
+      }
+    });
   };
-
-  // Отправка формы
-  const handleSubmit = async (values: PropertyFormData) => {
-    if (images.length === 0) {
-      Alert.alert('Ошибка', 'Добавьте хотя бы одно изображение объекта');
-      return;
-    }
-
-    setIsSubmitting(true);
-
+  
+  // Обработчик выбора изображений
+  const handlePickImages = async () => {
     try {
-      // Создаем объект недвижимости
-      const property = await propertyService.createProperty(values);
+      const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
       
-      // Загружаем изображения
-      if (property && property.id) {
-        const formData = new FormData();
-        
-        images.forEach((uri, index) => {
-          const filename = uri.split('/').pop() || `image_${index}.jpg`;
-          const match = /\.(\w+)$/.exec(filename);
-          const type = match ? `image/${match[1]}` : 'image/jpeg';
-          
-          formData.append('images', {
-            uri,
-            name: filename,
-            type,
-          } as any);
-        });
-        
-        await propertyService.uploadPropertyImages(property.id, formData);
+      if (status !== 'granted') {
+        Alert.alert('Ошибка', 'Необходимо разрешение на доступ к галерее');
+        return;
       }
       
-      Alert.alert(
-        'Успех',
-        'Объект недвижимости успешно создан',
-        [{ text: 'OK', onPress: () => router.push('/properties') }]
-      );
+      const result = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: ImagePicker.MediaTypeOptions.Images,
+        allowsEditing: true,
+        aspect: [16, 9],
+        quality: 0.8,
+        allowsMultipleSelection: true,
+        selectionLimit: 10,
+      });
+      
+      if (!result.canceled && result.assets && result.assets.length > 0) {
+        const newImages = result.assets.map(asset => asset.uri);
+        setFormData(prev => ({
+          ...prev,
+          images: [...prev.images, ...newImages].slice(0, 10)
+        }));
+      }
     } catch (error) {
-      console.error('Ошибка при создании объекта:', error);
-      Alert.alert('Ошибка', 'Не удалось создать объект недвижимости');
-    } finally {
-      setIsSubmitting(false);
+      console.error('Ошибка при выборе изображений:', error);
+      Alert.alert('Ошибка', 'Не удалось выбрать изображения');
     }
   };
-
-  return (
-    <ScrollView style={styles.container}>
-      <Stack.Screen options={{ title: 'Добавить объект' }} />
+  
+  // Удаление изображения
+  const removeImage = (index: number) => {
+    setFormData(prev => ({
+      ...prev,
+      images: prev.images.filter((_, i) => i !== index)
+    }));
+  };
+  
+  // Переход к следующему шагу
+  const goToNextStep = () => {
+    if (currentStep < totalSteps) {
+      setCurrentStep(prev => prev + 1);
+    }
+  };
+  
+  // Переход к предыдущему шагу
+  const goToPrevStep = () => {
+    if (currentStep > 1) {
+      setCurrentStep(prev => prev - 1);
+    }
+  };
+  
+  // Валидация текущего шага
+  const validateCurrentStep = (): boolean => {
+    switch (currentStep) {
+      case 1:
+        if (!formData.title.trim()) {
+          Alert.alert('Ошибка', 'Введите название объекта');
+          return false;
+        }
+        if (!formData.description.trim()) {
+          Alert.alert('Ошибка', 'Введите описание объекта');
+          return false;
+        }
+        if (!formData.price.trim() || isNaN(Number(formData.price))) {
+          Alert.alert('Ошибка', 'Введите корректную цену');
+          return false;
+        }
+        return true;
+        
+      case 2:
+        if (!formData.address.trim()) {
+          Alert.alert('Ошибка', 'Введите адрес объекта');
+          return false;
+        }
+        if (!formData.city.trim()) {
+          Alert.alert('Ошибка', 'Введите город');
+          return false;
+        }
+        if (!formData.area.trim() || isNaN(Number(formData.area))) {
+          Alert.alert('Ошибка', 'Введите корректную площадь');
+          return false;
+        }
+        return true;
+        
+      case 3:
+        if (formData.amenities.length === 0) {
+          Alert.alert('Предупреждение', 'Вы не выбрали ни одного удобства. Продолжить?', [
+            { text: 'Отмена', style: 'cancel' },
+            { text: 'Продолжить', onPress: () => goToNextStep() }
+          ]);
+          return false;
+        }
+        return true;
+        
+      case 4:
+        if (formData.images.length === 0) {
+          Alert.alert('Предупреждение', 'Вы не добавили ни одного изображения. Объекты с фотографиями привлекают больше внимания. Продолжить?', [
+            { text: 'Отмена', style: 'cancel' },
+            { text: 'Продолжить', onPress: () => handleSubmit() }
+          ]);
+          return false;
+        }
+        return true;
+        
+      default:
+        return true;
+    }
+  };
+  
+  // Обработчик нажатия на кнопку "Далее"
+  const handleNext = () => {
+    if (validateCurrentStep()) {
+      if (currentStep < totalSteps) {
+        goToNextStep();
+      } else {
+        handleSubmit();
+      }
+    }
+  };
+  
+  // Отправка формы
+  const handleSubmit = async () => {
+    try {
+      setSubmitting(true);
       
-      <Formik
-        initialValues={initialValues}
-        validationSchema={PropertySchema}
-        onSubmit={handleSubmit}
-      >
-        {({ handleChange, handleBlur, handleSubmit, values, errors, touched, setFieldValue }) => (
-          <View style={styles.form}>
-            <Text style={styles.sectionTitle}>Основная информация</Text>
-            
-            <Text style={styles.label}>Название объекта</Text>
-            <TextInput
-              style={styles.input}
-              value={values.title}
-              onChangeText={handleChange('title')}
-              onBlur={handleBlur('title')}
-              placeholder="Например: Уютная квартира в центре"
-            />
-            {touched.title && errors.title && (
-              <Text style={styles.errorText}>{errors.title}</Text>
-            )}
-            
-            <Text style={styles.label}>Описание</Text>
-            <TextInput
-              style={[styles.input, styles.textArea]}
-              value={values.description}
-              onChangeText={handleChange('description')}
-              onBlur={handleBlur('description')}
-              placeholder="Подробное описание объекта"
-              multiline
-              numberOfLines={5}
-            />
-            {touched.description && errors.description && (
-              <Text style={styles.errorText}>{errors.description}</Text>
-            )}
-            
-            <Text style={styles.label}>Адрес</Text>
-            <TextInput
-              style={styles.input}
-              value={values.address}
-              onChangeText={handleChange('address')}
-              onBlur={handleBlur('address')}
-              placeholder="Полный адрес объекта"
-            />
-            {touched.address && errors.address && (
-              <Text style={styles.errorText}>{errors.address}</Text>
-            )}
-            
-            <View style={styles.row}>
-              <View style={styles.column}>
-                <Text style={styles.label}>Цена</Text>
-                <TextInput
-                  style={styles.input}
-                  value={values.price.toString()}
-                  onChangeText={(value) => setFieldValue('price', value ? parseFloat(value) : 0)}
-                  onBlur={handleBlur('price')}
-                  placeholder="0"
-                  keyboardType="numeric"
+      // Подготовка данных для отправки
+      const propertyData = {
+        ...formData,
+        price: Number(formData.price),
+        bedrooms: Number(formData.bedrooms),
+        bathrooms: Number(formData.bathrooms),
+        area: Number(formData.area),
+      };
+      
+      // Отправка данных на сервер
+      const response = await propertyService.createProperty(propertyData);
+      
+      setSubmitting(false);
+      
+      if (response && response.id) {
+        Alert.alert(
+          'Успешно',
+          'Объект недвижимости успешно добавлен',
+          [
+            {
+              text: 'OK',
+              onPress: () => router.push(`/properties/${response.id}`)
+            }
+          ]
+        );
+      } else {
+        Alert.alert('Ошибка', 'Не удалось добавить объект недвижимости');
+      }
+    } catch (error) {
+      setSubmitting(false);
+      console.error('Ошибка при отправке формы:', error);
+      Alert.alert('Ошибка', 'Не удалось добавить объект недвижимости');
+    }
+  };
+  
+  // Рендер шага 1: Основная информация
+  const renderStep1 = () => {
+    return (
+      <View style={styles.stepContainer}>
+        <Text style={styles.stepTitle}>Основная информация</Text>
+        
+        <View style={styles.inputContainer}>
+          <Text style={styles.inputLabel}>Название объекта *</Text>
+          <TextInput
+            style={styles.input}
+            value={formData.title}
+            onChangeText={(text) => handleChange('title', text)}
+            placeholder="Например: Уютная квартира в центре"
+            maxLength={100}
+          />
+        </View>
+        
+        <View style={styles.inputContainer}>
+          <Text style={styles.inputLabel}>Описание *</Text>
+          <TextInput
+            style={[styles.input, styles.textArea]}
+            value={formData.description}
+            onChangeText={(text) => handleChange('description', text)}
+            placeholder="Опишите ваш объект..."
+            multiline
+            numberOfLines={5}
+            maxLength={2000}
+          />
+        </View>
+        
+        <View style={styles.inputContainer}>
+          <Text style={styles.inputLabel}>Цена за ночь (₽) *</Text>
+          <TextInput
+            style={styles.input}
+            value={formData.price}
+            onChangeText={(text) => handleChange('price', text)}
+            placeholder="Например: 5000"
+            keyboardType="number-pad"
+          />
+        </View>
+        
+        <View style={styles.inputContainer}>
+          <Text style={styles.inputLabel}>Тип объекта *</Text>
+          <View style={styles.propertyTypesContainer}>
+            {propertyTypes.map((type) => (
+              <TouchableOpacity
+                key={type.id}
+                style={[
+                  styles.propertyTypeButton,
+                  formData.type === type.id && styles.propertyTypeButtonActive
+                ]}
+                onPress={() => handleChange('type', type.id)}
+              >
+                <Ionicons
+                  name={type.icon as any}
+                  size={24}
+                  color={formData.type === type.id ? '#fff' : '#333'}
                 />
-                {touched.price && errors.price && (
-                  <Text style={styles.errorText}>{errors.price}</Text>
-                )}
-              </View>
-              
-              <View style={styles.column}>
-                <Text style={styles.label}>За</Text>
-                <View style={styles.pickerContainer}>
-                  <TouchableOpacity
-                    style={[
-                      styles.pickerOption,
-                      values.priceUnit === 'day' && styles.pickerOptionSelected
-                    ]}
-                    onPress={() => setFieldValue('priceUnit', 'day')}
-                  >
-                    <Text style={styles.pickerText}>День</Text>
-                  </TouchableOpacity>
-                  <TouchableOpacity
-                    style={[
-                      styles.pickerOption,
-                      values.priceUnit === 'night' && styles.pickerOptionSelected
-                    ]}
-                    onPress={() => setFieldValue('priceUnit', 'night')}
-                  >
-                    <Text style={styles.pickerText}>Ночь</Text>
-                  </TouchableOpacity>
-                  <TouchableOpacity
-                    style={[
-                      styles.pickerOption,
-                      values.priceUnit === 'month' && styles.pickerOptionSelected
-                    ]}
-                    onPress={() => setFieldValue('priceUnit', 'month')}
-                  >
-                    <Text style={styles.pickerText}>Месяц</Text>
-                  </TouchableOpacity>
-                </View>
-              </View>
-            </View>
-            
-            <Text style={styles.sectionTitle}>Характеристики</Text>
-            
-            <View style={styles.row}>
-              <View style={styles.column}>
-                <Text style={styles.label}>Комнаты</Text>
-                <TextInput
-                  style={styles.input}
-                  value={values.rooms.toString()}
-                  onChangeText={(value) => setFieldValue('rooms', value ? parseInt(value) : 0)}
-                  onBlur={handleBlur('rooms')}
-                  placeholder="1"
-                  keyboardType="numeric"
-                />
-                {touched.rooms && errors.rooms && (
-                  <Text style={styles.errorText}>{errors.rooms}</Text>
-                )}
-              </View>
-              
-              <View style={styles.column}>
-                <Text style={styles.label}>Спальные места</Text>
-                <TextInput
-                  style={styles.input}
-                  value={values.beds.toString()}
-                  onChangeText={(value) => setFieldValue('beds', value ? parseInt(value) : 0)}
-                  onBlur={handleBlur('beds')}
-                  placeholder="1"
-                  keyboardType="numeric"
-                />
-                {touched.beds && errors.beds && (
-                  <Text style={styles.errorText}>{errors.beds}</Text>
-                )}
-              </View>
-            </View>
-            
-            <View style={styles.row}>
-              <View style={styles.column}>
-                <Text style={styles.label}>Ванные комнаты</Text>
-                <TextInput
-                  style={styles.input}
-                  value={values.bathrooms.toString()}
-                  onChangeText={(value) => setFieldValue('bathrooms', value ? parseInt(value) : 0)}
-                  onBlur={handleBlur('bathrooms')}
-                  placeholder="1"
-                  keyboardType="numeric"
-                />
-                {touched.bathrooms && errors.bathrooms && (
-                  <Text style={styles.errorText}>{errors.bathrooms}</Text>
-                )}
-              </View>
-              
-              <View style={styles.column}>
-                <Text style={styles.label}>Макс. гостей</Text>
-                <TextInput
-                  style={styles.input}
-                  value={values.maxGuests.toString()}
-                  onChangeText={(value) => setFieldValue('maxGuests', value ? parseInt(value) : 0)}
-                  onBlur={handleBlur('maxGuests')}
-                  placeholder="1"
-                  keyboardType="numeric"
-                />
-                {touched.maxGuests && errors.maxGuests && (
-                  <Text style={styles.errorText}>{errors.maxGuests}</Text>
-                )}
-              </View>
-            </View>
-            
-            <Text style={styles.sectionTitle}>Удобства</Text>
-            <View style={styles.amenitiesContainer}>
-              {amenitiesList.map((amenity) => (
-                <TouchableOpacity
-                  key={amenity}
+                <Text
                   style={[
-                    styles.amenityItem,
-                    values.amenities.includes(amenity) && styles.amenitySelected
+                    styles.propertyTypeText,
+                    formData.type === type.id && styles.propertyTypeTextActive
                   ]}
-                  onPress={() => {
-                    const newAmenities = values.amenities.includes(amenity)
-                      ? values.amenities.filter(a => a !== amenity)
-                      : [...values.amenities, amenity];
-                    setFieldValue('amenities', newAmenities);
-                  }}
                 >
-                  <Text style={values.amenities.includes(amenity) ? styles.amenityTextSelected : styles.amenityText}>
-                    {amenity}
-                  </Text>
-                </TouchableOpacity>
-              ))}
-            </View>
-            
-            <Text style={styles.sectionTitle}>Фотографии</Text>
-            <TouchableOpacity style={styles.imagePickerButton} onPress={pickImages}>
-              <Text style={styles.imagePickerButtonText}>Добавить фотографии</Text>
+                  {type.name}
+                </Text>
+              </TouchableOpacity>
+            ))}
+          </View>
+        </View>
+      </View>
+    );
+  };
+  
+  // Рендер шага 2: Детали и расположение
+  const renderStep2 = () => {
+    return (
+      <View style={styles.stepContainer}>
+        <Text style={styles.stepTitle}>Детали и расположение</Text>
+        
+        <View style={styles.inputContainer}>
+          <Text style={styles.inputLabel}>Адрес *</Text>
+          <TextInput
+            style={styles.input}
+            value={formData.address}
+            onChangeText={(text) => handleChange('address', text)}
+            placeholder="Улица, номер дома, квартира"
+          />
+        </View>
+        
+        <View style={styles.inputContainer}>
+          <Text style={styles.inputLabel}>Город *</Text>
+          <TextInput
+            style={styles.input}
+            value={formData.city}
+            onChangeText={(text) => handleChange('city', text)}
+            placeholder="Например: Шепси"
+          />
+        </View>
+        
+        <View style={styles.inputContainer}>
+          <Text style={styles.inputLabel}>Количество спален</Text>
+          <View style={styles.counterContainer}>
+            <TouchableOpacity
+              style={styles.counterButton}
+              onPress={() => {
+                const value = Number(formData.bedrooms);
+                if (value > 1) {
+                  handleChange('bedrooms', String(value - 1));
+                }
+              }}
+            >
+              <Ionicons name="remove" size={20} color="#333" />
             </TouchableOpacity>
             
-            {images.length > 0 && (
-              <View style={styles.imagePreviewContainer}>
-                {images.map((uri, index) => (
-                  <View key={index} style={styles.imagePreview}>
-                    <TouchableOpacity
-                      style={styles.removeImageButton}
-                      onPress={() => removeImage(index)}
-                    >
-                      <Text style={styles.removeImageButtonText}>×</Text>
-                    </TouchableOpacity>
-                    <Image source={{ uri }} style={styles.previewImage} />
-                  </View>
-                ))}
-              </View>
-            )}
+            <Text style={styles.counterValue}>{formData.bedrooms}</Text>
             
             <TouchableOpacity
-              style={styles.submitButton}
-              onPress={() => handleSubmit()}
-              disabled={isSubmitting}
+              style={styles.counterButton}
+              onPress={() => {
+                const value = Number(formData.bedrooms);
+                handleChange('bedrooms', String(value + 1));
+              }}
             >
-              {isSubmitting ? (
-                <ActivityIndicator color="#fff" />
-              ) : (
-                <Text style={styles.submitButtonText}>Создать объект</Text>
-              )}
+              <Ionicons name="add" size={20} color="#333" />
             </TouchableOpacity>
           </View>
+        </View>
+        
+        <View style={styles.inputContainer}>
+          <Text style={styles.inputLabel}>Количество ванных комнат</Text>
+          <View style={styles.counterContainer}>
+            <TouchableOpacity
+              style={styles.counterButton}
+              onPress={() => {
+                const value = Number(formData.bathrooms);
+                if (value > 1) {
+                  handleChange('bathrooms', String(value - 1));
+                }
+              }}
+            >
+              <Ionicons name="remove" size={20} color="#333" />
+            </TouchableOpacity>
+            
+            <Text style={styles.counterValue}>{formData.bathrooms}</Text>
+            
+            <TouchableOpacity
+              style={styles.counterButton}
+              onPress={() => {
+                const value = Number(formData.bathrooms);
+                handleChange('bathrooms', String(value + 1));
+              }}
+            >
+              <Ionicons name="add" size={20} color="#333" />
+            </TouchableOpacity>
+          </View>
+        </View>
+        
+        <View style={styles.inputContainer}>
+          <Text style={styles.inputLabel}>Площадь (м²) *</Text>
+          <TextInput
+            style={styles.input}
+            value={formData.area}
+            onChangeText={(text) => handleChange('area', text)}
+            placeholder="Например: 60"
+            keyboardType="number-pad"
+          />
+        </View>
+      </View>
+    );
+  };
+  
+  // Рендер шага 3: Удобства и правила
+  const renderStep3 = () => {
+    return (
+      <View style={styles.stepContainer}>
+        <Text style={styles.stepTitle}>Удобства и правила</Text>
+        
+        <Text style={styles.sectionTitle}>Удобства</Text>
+        <View style={styles.amenitiesContainer}>
+          {amenityOptions.map((amenity) => (
+            <TouchableOpacity
+              key={amenity.id}
+              style={[
+                styles.amenityButton,
+                formData.amenities.includes(amenity.id) && styles.amenityButtonActive
+              ]}
+              onPress={() => toggleAmenity(amenity.id)}
+            >
+              <Ionicons
+                name={amenity.icon as any}
+                size={22}
+                color={formData.amenities.includes(amenity.id) ? '#fff' : '#333'}
+              />
+              <Text
+                style={[
+                  styles.amenityText,
+                  formData.amenities.includes(amenity.id) && styles.amenityTextActive
+                ]}
+              >
+                {amenity.name}
+              </Text>
+            </TouchableOpacity>
+          ))}
+        </View>
+        
+        <Text style={styles.sectionTitle}>Правила проживания</Text>
+        <View style={styles.rulesContainer}>
+          {ruleOptions.map((rule) => (
+            <TouchableOpacity
+              key={rule.id}
+              style={[
+                styles.ruleButton,
+                formData.rules.includes(rule.id) && styles.ruleButtonActive
+              ]}
+              onPress={() => toggleRule(rule.id)}
+            >
+              <FontAwesome5
+                name={rule.icon}
+                size={16}
+                color={formData.rules.includes(rule.id) ? '#fff' : '#333'}
+              />
+              <Text
+                style={[
+                  styles.ruleText,
+                  formData.rules.includes(rule.id) && styles.ruleTextActive
+                ]}
+              >
+                {rule.name}
+              </Text>
+            </TouchableOpacity>
+          ))}
+        </View>
+        
+        <View style={styles.switchContainer}>
+          <View style={styles.switchItem}>
+            <Text style={styles.switchLabel}>Мгновенное бронирование</Text>
+            <Switch
+              value={formData.instantBooking}
+              onValueChange={(value) => handleChange('instantBooking', value)}
+              trackColor={{ false: '#d1d1d1', true: '#4D8EFF' }}
+              thumbColor="#fff"
+            />
+          </View>
+          
+          <View style={styles.switchItem}>
+            <Text style={styles.switchLabel}>Активный объект</Text>
+            <Switch
+              value={formData.isActive}
+              onValueChange={(value) => handleChange('isActive', value)}
+              trackColor={{ false: '#d1d1d1', true: '#4D8EFF' }}
+              thumbColor="#fff"
+            />
+          </View>
+        </View>
+      </View>
+    );
+  };
+  
+  // Рендер шага 4: Фотографии
+  const renderStep4 = () => {
+    return (
+      <View style={styles.stepContainer}>
+        <Text style={styles.stepTitle}>Фотографии</Text>
+        
+        <Text style={styles.helperText}>
+          Добавьте до 10 фотографий вашего объекта. Качественные фотографии увеличивают шансы на бронирование.
+        </Text>
+        
+        <TouchableOpacity
+          style={styles.imagePickerButton}
+          onPress={handlePickImages}
+        >
+          <Ionicons name="images-outline" size={32} color="#4D8EFF" />
+          <Text style={styles.imagePickerText}>Выбрать фотографии</Text>
+        </TouchableOpacity>
+        
+        {formData.images.length > 0 && (
+          <View style={styles.imagesContainer}>
+            {formData.images.map((image, index) => (
+              <View key={index} style={styles.imageWrapper}>
+                <Image source={{ uri: image }} style={styles.imagePreview} />
+                <TouchableOpacity
+                  style={styles.removeImageButton}
+                  onPress={() => removeImage(index)}
+                >
+                  <Ionicons name="close-circle" size={24} color="#FF3B30" />
+                </TouchableOpacity>
+              </View>
+            ))}
+          </View>
         )}
-      </Formik>
-    </ScrollView>
+      </View>
+    );
+  };
+  
+  // Рендер текущего шага
+  const renderCurrentStep = () => {
+    switch (currentStep) {
+      case 1:
+        return renderStep1();
+      case 2:
+        return renderStep2();
+      case 3:
+        return renderStep3();
+      case 4:
+        return renderStep4();
+      default:
+        return null;
+    }
+  };
+  
+  return (
+    <SafeAreaView style={styles.container} edges={['top']}>
+      <Stack.Screen
+        options={{
+          headerShown: true,
+          title: 'Добавление объекта',
+          headerStyle: { backgroundColor: '#4D8EFF' },
+          headerTintColor: '#fff',
+        }}
+      />
+      
+      <View style={styles.progressContainer}>
+        {Array.from({ length: totalSteps }).map((_, index) => (
+          <View
+            key={index}
+            style={[
+              styles.progressStep,
+              currentStep > index && styles.progressStepCompleted,
+              currentStep === index + 1 && styles.progressStepActive
+            ]}
+          />
+        ))}
+      </View>
+      
+      <ScrollView style={styles.scrollView} contentContainerStyle={styles.scrollViewContent}>
+        {renderCurrentStep()}
+      </ScrollView>
+      
+      <View style={styles.buttonsContainer}>
+        {currentStep > 1 && (
+          <TouchableOpacity
+            style={styles.backButton}
+            onPress={goToPrevStep}
+            disabled={submitting}
+          >
+            <Text style={styles.backButtonText}>Назад</Text>
+          </TouchableOpacity>
+        )}
+        
+        <TouchableOpacity
+          style={[styles.nextButton, submitting && styles.disabledButton]}
+          onPress={handleNext}
+          disabled={submitting}
+        >
+          {submitting ? (
+            <ActivityIndicator size="small" color="#fff" />
+          ) : (
+            <Text style={styles.nextButtonText}>
+              {currentStep === totalSteps ? 'Добавить объект' : 'Далее'}
+            </Text>
+          )}
+        </TouchableOpacity>
+      </View>
+    </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#fff',
+    backgroundColor: '#F0F0F0',
   },
-  form: {
+  progressContainer: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    paddingHorizontal: 20,
+    paddingVertical: 15,
+    backgroundColor: '#fff',
+    borderBottomWidth: 1,
+    borderBottomColor: '#e1e1e1',
+  },
+  progressStep: {
+    flex: 1,
+    height: 4,
+    backgroundColor: '#e1e1e1',
+    marginHorizontal: 2,
+    borderRadius: 2,
+  },
+  progressStepCompleted: {
+    backgroundColor: '#4D8EFF',
+  },
+  progressStepActive: {
+    backgroundColor: '#4D8EFF',
+  },
+  scrollView: {
+    flex: 1,
+  },
+  scrollViewContent: {
     padding: 16,
   },
+  stepContainer: {
+    marginBottom: 20,
+  },
+  stepTitle: {
+    fontSize: 20,
+    fontWeight: '600',
+    marginBottom: 20,
+    color: '#333',
+  },
   sectionTitle: {
-    fontSize: 18,
-    fontWeight: 'bold',
+    fontSize: 16,
+    fontWeight: '600',
     marginTop: 20,
     marginBottom: 10,
+    color: '#333',
   },
-  label: {
-    fontSize: 16,
-    marginBottom: 5,
+  inputContainer: {
+    marginBottom: 16,
+  },
+  inputLabel: {
+    fontSize: 14,
+    marginBottom: 6,
+    color: '#666',
   },
   input: {
+    backgroundColor: '#fff',
     borderWidth: 1,
     borderColor: '#ddd',
     borderRadius: 8,
-    padding: 10,
-    marginBottom: 15,
+    padding: 12,
     fontSize: 16,
   },
   textArea: {
     height: 120,
     textAlignVertical: 'top',
   },
-  errorText: {
-    color: 'red',
-    fontSize: 14,
-    marginTop: -10,
-    marginBottom: 10,
-  },
-  row: {
+  propertyTypesContainer: {
     flexDirection: 'row',
-    justifyContent: 'space-between',
+    flexWrap: 'wrap',
+    marginHorizontal: -5,
   },
-  column: {
-    flex: 1,
-    marginRight: 10,
+  propertyTypeButton: {
+    flexDirection: 'column',
+    alignItems: 'center',
+    justifyContent: 'center',
+    width: '30%',
+    margin: '1.5%',
+    padding: 10,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: '#ddd',
+    backgroundColor: '#fff',
   },
-  pickerContainer: {
+  propertyTypeButtonActive: {
+    backgroundColor: '#4D8EFF',
+    borderColor: '#4D8EFF',
+  },
+  propertyTypeText: {
+    marginTop: 5,
+    fontSize: 12,
+    color: '#333',
+  },
+  propertyTypeTextActive: {
+    color: '#fff',
+  },
+  counterContainer: {
     flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#fff',
     borderWidth: 1,
     borderColor: '#ddd',
     borderRadius: 8,
     overflow: 'hidden',
-    marginBottom: 15,
   },
-  pickerOption: {
-    flex: 1,
-    padding: 10,
+  counterButton: {
+    width: 40,
+    height: 40,
     alignItems: 'center',
-    backgroundColor: '#f5f5f5',
+    justifyContent: 'center',
   },
-  pickerOptionSelected: {
-    backgroundColor: '#007AFF',
-  },
-  pickerText: {
+  counterValue: {
+    flex: 1,
+    textAlign: 'center',
     fontSize: 16,
-    color: '#333',
-  },
-  pickerTextSelected: {
-    color: '#fff',
   },
   amenitiesContainer: {
     flexDirection: 'row',
     flexWrap: 'wrap',
-    marginBottom: 15,
+    marginHorizontal: -5,
   },
-  amenityItem: {
+  amenityButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    width: '48%',
+    margin: '1%',
+    padding: 10,
+    borderRadius: 8,
     borderWidth: 1,
     borderColor: '#ddd',
-    borderRadius: 20,
-    padding: 8,
-    paddingHorizontal: 12,
-    margin: 5,
-    backgroundColor: '#f5f5f5',
+    backgroundColor: '#fff',
   },
-  amenitySelected: {
-    backgroundColor: '#007AFF',
-    borderColor: '#007AFF',
+  amenityButtonActive: {
+    backgroundColor: '#4D8EFF',
+    borderColor: '#4D8EFF',
   },
   amenityText: {
+    marginLeft: 8,
     fontSize: 14,
     color: '#333',
   },
-  amenityTextSelected: {
+  amenityTextActive: {
     color: '#fff',
   },
-  imagePickerButton: {
-    backgroundColor: '#f5f5f5',
-    borderWidth: 1,
-    borderColor: '#ddd',
-    borderRadius: 8,
-    padding: 15,
-    alignItems: 'center',
-    marginBottom: 15,
-  },
-  imagePickerButtonText: {
-    fontSize: 16,
-    color: '#007AFF',
-  },
-  imagePreviewContainer: {
+  rulesContainer: {
     flexDirection: 'row',
     flexWrap: 'wrap',
-    marginBottom: 15,
+    marginHorizontal: -5,
   },
-  imagePreview: {
-    width: 100,
-    height: 100,
+  ruleButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    width: '48%',
+    margin: '1%',
+    padding: 10,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: '#ddd',
+    backgroundColor: '#fff',
+  },
+  ruleButtonActive: {
+    backgroundColor: '#4D8EFF',
+    borderColor: '#4D8EFF',
+  },
+  ruleText: {
+    marginLeft: 8,
+    fontSize: 14,
+    color: '#333',
+  },
+  ruleTextActive: {
+    color: '#fff',
+  },
+  switchContainer: {
+    marginTop: 20,
+  },
+  switchItem: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingVertical: 10,
+    borderBottomWidth: 1,
+    borderBottomColor: '#e1e1e1',
+  },
+  switchLabel: {
+    fontSize: 16,
+    color: '#333',
+  },
+  helperText: {
+    fontSize: 14,
+    color: '#666',
+    marginBottom: 16,
+  },
+  imagePickerButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#fff',
+    borderWidth: 1,
+    borderColor: '#4D8EFF',
+    borderRadius: 8,
+    padding: 15,
+    marginBottom: 16,
+  },
+  imagePickerText: {
+    fontSize: 16,
+    color: '#4D8EFF',
+    marginLeft: 10,
+  },
+  imagesContainer: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    marginHorizontal: -5,
+  },
+  imageWrapper: {
+    width: '48%',
+    aspectRatio: 16/9,
     margin: 5,
     position: 'relative',
   },
-  previewImage: {
+  imagePreview: {
     width: '100%',
     height: '100%',
     borderRadius: 8,
   },
   removeImageButton: {
     position: 'absolute',
-    top: -5,
-    right: -5,
-    backgroundColor: 'rgba(0,0,0,0.7)',
-    width: 24,
-    height: 24,
+    top: 5,
+    right: 5,
+    backgroundColor: '#fff',
     borderRadius: 12,
-    alignItems: 'center',
-    justifyContent: 'center',
-    zIndex: 10,
   },
-  removeImageButtonText: {
-    color: '#fff',
-    fontSize: 18,
-    fontWeight: 'bold',
+  buttonsContainer: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    padding: 15,
+    backgroundColor: '#fff',
+    borderTopWidth: 1,
+    borderTopColor: '#e1e1e1',
   },
-  submitButton: {
-    backgroundColor: '#007AFF',
+  backButton: {
+    backgroundColor: '#4D8EFF',
     borderRadius: 8,
     padding: 15,
     alignItems: 'center',
-    marginTop: 20,
   },
-  submitButtonText: {
+  backButtonText: {
     color: '#fff',
-    fontSize: 18,
-    fontWeight: 'bold',
+    fontSize: 16,
+    fontWeight: '600',
+  },
+  nextButton: {
+    backgroundColor: '#4D8EFF',
+    borderRadius: 8,
+    padding: 15,
+    alignItems: 'center',
+  },
+  disabledButton: {
+    backgroundColor: '#ccc',
+  },
+  nextButtonText: {
+    color: '#fff',
+    fontSize: 16,
+    fontWeight: '600',
   },
 }); 

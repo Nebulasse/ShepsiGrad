@@ -503,7 +503,7 @@ export default function PropertyCalendarScreen() {
   };
 
   // Обработчик выбора даты в календаре
-  const handleDateSelect = (day: DateData) => {
+  const handleDateSelectBlocking = (day: DateData) => {
     const dateString = day.dateString;
     
     if (blockingMode) {

@@ -37,8 +37,17 @@ module.exports = {
       tsconfigPaths: true,
       turboModules: false
     },
+    updates: {
+      url: "https://u.expo.dev/6a31eda4-6a21-4a5e-9986-60bcec75c41a"
+    },
+    runtimeVersion: {
+      policy: "appVersion"
+    },
     extra: {
-      experimentalBridgeless: false
+      experimentalBridgeless: false,
+      eas: {
+        projectId: "6a31eda4-6a21-4a5e-9986-60bcec75c41a"
+      }
     },
     sdkVersion: "53.0.0"
   }

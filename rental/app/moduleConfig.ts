@@ -3,7 +3,7 @@
  * Содержит настройки и константы для различных модулей приложения
  */
 
-import { APP_CONFIG } from './config';
+import { APP_CONFIG, STORE_CONFIG } from './config';
 
 // Типы для конфигурации модулей
 export type ModulePermission = 'read' | 'write' | 'admin';
@@ -138,22 +138,30 @@ export const chatConfig = {
 };
 
 // Настройки модуля календаря
-export const calendarConfig = {
-  defaultViewMode: 'month', // 'day', 'week', 'month'
-  firstDayOfWeek: 1, // 0 - воскресенье, 1 - понедельник
-  workingHours: {
-    start: 9, // 9:00
-    end: 18, // 18:00
-  },
-  eventColors: {
-    booking: '#4D8EFF',
-    blocked: '#F44336',
-    maintenance: '#FF9800',
-  },
+export const CALENDAR_CONFIG = {
+  bookingStatuses: [
+    { id: 'pending', label: 'Ожидает подтверждения', color: '#FFC107' },
+    { id: 'confirmed', label: 'Подтверждено', color: '#4CAF50' },
+    { id: 'cancelled', label: 'Отменено', color: '#F44336' },
+    { id: 'completed', label: 'Завершено', color: '#2196F3' },
+  ],
+  paymentStatuses: [
+    { id: 'pending', label: 'Ожидает оплаты', color: '#FFC107' },
+    { id: 'partial', label: 'Частично оплачено', color: '#FF9800' },
+    { id: 'paid', label: 'Полностью оплачено', color: '#4CAF50' },
+    { id: 'refunded', label: 'Возвращено', color: '#9E9E9E' },
+    { id: 'failed', label: 'Ошибка оплаты', color: '#F44336' },
+  ],
+  blockReasons: [
+    { id: 'maintenance', label: 'Техническое обслуживание' },
+    { id: 'renovation', label: 'Ремонт' },
+    { id: 'personal_use', label: 'Личное использование' },
+    { id: 'other', label: 'Другое' },
+  ],
 };
 
 // Настройки модуля цен
-export const pricingConfig = {
+export const PRICING_CONFIG = {
   seasonTypes: [
     { id: 'low', label: 'Низкий сезон', defaultMultiplier: 0.8 },
     { id: 'standard', label: 'Стандартный сезон', defaultMultiplier: 1.0 },
@@ -166,6 +174,30 @@ export const pricingConfig = {
     { id: 'early_bird', label: 'Раннее бронирование', defaultPercent: 10 },
     { id: 'last_minute', label: 'Горящее предложение', defaultPercent: 10 },
   ],
+  defaultSeasons: [
+    { 
+      name: 'Низкий сезон (Осень)',
+      startDate: '2024-10-01',
+      endDate: '2024-11-30',
+      multiplier: 0.8
+    },
+    { 
+      name: 'Высокий сезон (Лето)',
+      startDate: '2024-06-01',
+      endDate: '2024-08-31',
+      multiplier: 1.3
+    },
+    { 
+      name: 'Новогодние праздники',
+      startDate: '2024-12-20',
+      endDate: '2025-01-10',
+      multiplier: 1.5
+    }
+  ],
+  weekendMultiplier: 1.2, // Множитель цены для выходных дней
+  minStayDefault: 1, // Минимальное количество ночей по умолчанию
+  maxStayDefault: 30, // Максимальное количество ночей по умолчанию
+  currency: 'RUB', // Валюта по умолчанию
 };
 
 // Настройки модуля аналитики
@@ -412,71 +444,8 @@ export const houseRules = [
   { id: 'check_out_time', label: 'Выезд до 12:00' },
 ];
 
-// Настройки модуля цен
-export const pricingConfig = {
-  seasonTypes: [
-    { id: 'low', label: 'Низкий сезон', defaultMultiplier: 0.8 },
-    { id: 'standard', label: 'Стандартный сезон', defaultMultiplier: 1.0 },
-    { id: 'high', label: 'Высокий сезон', defaultMultiplier: 1.2 },
-    { id: 'peak', label: 'Пиковый сезон', defaultMultiplier: 1.5 },
-  ],
-  discountTypes: [
-    { id: 'weekly', label: 'Недельная скидка', defaultPercent: 5 },
-    { id: 'monthly', label: 'Месячная скидка', defaultPercent: 15 },
-    { id: 'early_bird', label: 'Раннее бронирование', defaultPercent: 10 },
-    { id: 'last_minute', label: 'Горящее предложение', defaultPercent: 10 },
-  ],
-  defaultSeasons: [
-    { 
-      name: 'Низкий сезон (Осень)',
-      startDate: '2024-10-01',
-      endDate: '2024-11-30',
-      multiplier: 0.8
-    },
-    { 
-      name: 'Высокий сезон (Лето)',
-      startDate: '2024-06-01',
-      endDate: '2024-08-31',
-      multiplier: 1.3
-    },
-    { 
-      name: 'Новогодние праздники',
-      startDate: '2024-12-20',
-      endDate: '2025-01-10',
-      multiplier: 1.5
-    }
-  ],
-  weekendMultiplier: 1.2, // Множитель цены для выходных дней
-  minStayDefault: 1, // Минимальное количество ночей по умолчанию
-  maxStayDefault: 30, // Максимальное количество ночей по умолчанию
-  currency: 'RUB', // Валюта по умолчанию
-};
-
-// Настройки для календаря
-export const calendarConfig = {
-  bookingStatuses: [
-    { id: 'pending', label: 'Ожидает подтверждения', color: '#FFC107' },
-    { id: 'confirmed', label: 'Подтверждено', color: '#4CAF50' },
-    { id: 'cancelled', label: 'Отменено', color: '#F44336' },
-    { id: 'completed', label: 'Завершено', color: '#2196F3' },
-  ],
-  paymentStatuses: [
-    { id: 'pending', label: 'Ожидает оплаты', color: '#FFC107' },
-    { id: 'partial', label: 'Частично оплачено', color: '#FF9800' },
-    { id: 'paid', label: 'Полностью оплачено', color: '#4CAF50' },
-    { id: 'refunded', label: 'Возвращено', color: '#9E9E9E' },
-    { id: 'failed', label: 'Ошибка оплаты', color: '#F44336' },
-  ],
-  blockReasons: [
-    { id: 'maintenance', label: 'Техническое обслуживание' },
-    { id: 'renovation', label: 'Ремонт' },
-    { id: 'personal_use', label: 'Личное использование' },
-    { id: 'other', label: 'Другое' },
-  ],
-};
-
 // Настройки для чата
-export const chatConfig = {
+export const CHAT_CONFIG_EXTENDED = {
   messageTypes: [
     { id: 'text', label: 'Текстовое сообщение' },
     { id: 'image', label: 'Изображение' },
@@ -495,7 +464,7 @@ export const chatConfig = {
 };
 
 // Настройки для уведомлений
-export const notificationConfig = {
+export const NOTIFICATION_CONFIG_EXTENDED = {
   types: [
     { id: 'booking_request', label: 'Запрос на бронирование', priority: 'high' },
     { id: 'booking_confirmed', label: 'Бронирование подтверждено', priority: 'high' },
@@ -511,4 +480,137 @@ export const notificationConfig = {
     { id: 'sms', label: 'SMS', enabled: false },
     { id: 'push', label: 'Push-уведомления', enabled: true },
   ],
+};
+
+// Конфигурация для модуля аналитики
+export const ANALYTICS_CONFIG = {
+  enabled: true,
+  providers: {
+    firebase: {
+      enabled: true,
+      trackScreenViews: true,
+      trackUserProperties: true,
+      trackAppOpen: true,
+    },
+    amplitude: {
+      enabled: false,
+      apiKey: '',
+    },
+    yandexMetrica: {
+      enabled: false,
+      apiKey: '',
+    },
+  },
+  events: {
+    // События авторизации
+    LOGIN: 'login',
+    REGISTER: 'register',
+    LOGOUT: 'logout',
+    PASSWORD_RESET: 'password_reset',
+    
+    // События объектов недвижимости
+    PROPERTY_VIEW: 'property_view',
+    PROPERTY_ADD: 'property_add',
+    PROPERTY_EDIT: 'property_edit',
+    PROPERTY_DELETE: 'property_delete',
+    PROPERTY_PUBLISH: 'property_publish',
+    PROPERTY_UNPUBLISH: 'property_unpublish',
+    
+    // События бронирований
+    BOOKING_VIEW: 'booking_view',
+    BOOKING_ACCEPT: 'booking_accept',
+    BOOKING_REJECT: 'booking_reject',
+    BOOKING_CANCEL: 'booking_cancel',
+    
+    // События чата
+    CHAT_OPEN: 'chat_open',
+    MESSAGE_SEND: 'message_send',
+    
+    // События приложения
+    APP_RATE: 'app_rate',
+    APP_SHARE: 'app_share',
+    APP_ERROR: 'app_error',
+    APP_UPDATE: 'app_update',
+  },
+};
+
+// Конфигурация для модуля обновлений
+export const UPDATE_CONFIG = {
+  checkOnLaunch: true,
+  forceUpdate: false,
+  minRequiredVersion: '1.0.0',
+  updateUrl: STORE_CONFIG.rustore.enabled 
+    ? STORE_CONFIG.rustore.appUrl 
+    : STORE_CONFIG.playStore.appUrl,
+};
+
+// Конфигурация для модуля отзывов и рейтингов
+export const RATING_CONFIG = {
+  minSessionsBeforePrompt: 3,
+  daysBeforeReminding: 7,
+  minDaysSinceInstall: 2,
+  promptTitle: 'Оцените приложение',
+  promptMessage: 'Если вам нравится наше приложение, пожалуйста, оцените его. Это поможет нам стать лучше!',
+  promptNegativeButtonText: 'Не сейчас',
+  promptPositiveButtonText: 'Оценить',
+  promptNeverButtonText: 'Больше не спрашивать',
+  storeUrl: STORE_CONFIG.rustore.enabled 
+    ? STORE_CONFIG.rustore.appUrl 
+    : STORE_CONFIG.playStore.appUrl,
+};
+
+// Конфигурация для модуля поддержки
+export const SUPPORT_CONFIG = {
+  email: 'support@shepsigrad.com',
+  phone: '+7 (800) 123-45-67',
+  website: 'https://shepsigrad.com/support',
+  faq: 'https://shepsigrad.com/faq',
+  socialMedia: {
+    telegram: 'https://t.me/shepsigrad',
+    vk: 'https://vk.com/shepsigrad',
+  },
+};
+
+// Конфигурация для модуля глубоких ссылок
+export const DEEP_LINKING_CONFIG = {
+  enabled: true,
+  prefix: 'shepsigrad://',
+  schemes: ['shepsigrad', 'shepsigrad-landlord'],
+};
+
+// Конфигурация для модуля кэширования
+export const CACHE_CONFIG = {
+  enabled: true,
+  ttl: 3600, // Время жизни кэша в секундах
+  maxSize: 50 * 1024 * 1024, // Максимальный размер кэша в байтах (50MB)
+};
+
+// Конфигурация для модуля логирования
+export const LOGGING_CONFIG = {
+  enabled: true,
+  level: __DEV__ ? 'debug' : 'error',
+  remote: {
+    enabled: !__DEV__,
+    url: 'https://logs.shepsigrad.com/api/logs',
+  },
+};
+
+// Конфигурация для модуля офлайн-режима
+export const OFFLINE_CONFIG = {
+  enabled: true,
+  syncInterval: 60000, // Интервал синхронизации в миллисекундах
+  maxRetries: 5, // Максимальное количество попыток синхронизации
+  retryDelay: 5000, // Задержка между попытками в миллисекундах
+};
+
+// Конфигурация для модуля уведомлений о магазине приложений
+export const STORE_NOTIFICATION_CONFIG = {
+  enabled: true,
+  checkSource: true,
+  rustore: {
+    title: 'Установите из RuStore',
+    message: 'Для лучшей работы приложения рекомендуем установить его из RuStore',
+    buttonText: 'Перейти в RuStore',
+    url: STORE_CONFIG.rustore.appUrl,
+  },
 }; 

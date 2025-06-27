@@ -1,0 +1,96 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: shepsigrad-dev
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: backend-config
+  namespace: shepsigrad-dev
+data:
+  NODE_ENV: "development"
+  PORT: "3000"
+  API_PREFIX: "/api/v1"
+  CORS_ORIGIN: "https://dev.shepsigrad.com"
+  DB_HOST: "postgres-service"
+  DB_PORT: "5432"
+  DB_DATABASE: "rental_db"
+  REDIS_HOST: "redis-service"
+  REDIS_PORT: "6379"
+  LOG_LEVEL: "info"
+  S3_ENDPOINT: "http://minio-service:9000"
+  S3_BUCKET: "shepsigrad"
+  S3_REGION: "us-east-1"
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: shepsigrad-backend
+  namespace: shepsigrad-dev
+  labels:
+    app: shepsigrad-backend
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: shepsigrad-backend
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
+  template:
+    metadata:
+      labels:
+        app: shepsigrad-backend
+    spec:
+      containers:
+      - name: shepsigrad-backend
+        image: yourusername/shepsigrad-backend:develop
+        imagePullPolicy: Always
+        ports:
+        - containerPort: 3000
+        resources:
+          limits:
+            cpu: "500m"
+            memory: "512Mi"
+          requests:
+            cpu: "200m"
+            memory: "256Mi"
+        envFrom:
+        - configMapRef:
+            name: backend-config
+        - secretRef:
+            name: backend-secrets
+        livenessProbe:
+          httpGet:
+            path: /api/v1/health
+            port: 3000
+          initialDelaySeconds: 30
+          periodSeconds: 10
+        readinessProbe:
+          httpGet:
+            path: /api/v1/health
+            port: 3000
+          initialDelaySeconds: 5
+          periodSeconds: 5
+        volumeMounts:
+        - name: logs
+          mountPath: /app/logs
+      volumes:
+      - name: logs
+        emptyDir: {}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: backend-service
+  namespace: shepsigrad-dev
+spec:
+  selector:
+    app: shepsigrad-backend
+  ports:
+  - port: 80
+    targetPort: 3000
+  type: ClusterIP 

@@ -1,273 +1,202 @@
+import { API_CONFIG } from '../config';
 import { io, Socket } from 'socket.io-client';
-import { Platform } from 'react-native';
-import NetInfo from '@react-native-community/netinfo';
-import { API_URL } from '../config';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import { useEffect, useState } from 'react';
 
-// Типы сообщений для синхронизации
-export enum SyncEventType {
-  PROPERTY = 'property-update',
-  BOOKING = 'booking-update',
-  CHAT = 'new-message',
-  NOTIFICATION = 'new-notification'
+// Каналы синхронизации, соответствующие бэкенду
+export enum SyncChannel {
+  PROPERTY_UPDATE = 'PROPERTY_UPDATE',
+  CHAT_MESSAGE = 'CHAT_MESSAGE',
+  NOTIFICATION = 'NOTIFICATION',
+  BOOKING_UPDATE = 'BOOKING_UPDATE',
+  USER_UPDATE = 'USER_UPDATE',
+  FAVORITE_UPDATE = 'FAVORITE_UPDATE'
 }
+
+// Тип для событий синхронизации
+export interface SyncEvent<T = any> {
+  type: string;
+  payload: T;
+  timestamp: number;
+  source: string;
+  targetApps?: string[];
+}
+
+// Тип для обработчиков событий
+type EventHandler<T = any> = (event: SyncEvent<T>) => void;
 
 class SyncService {
   private socket: Socket | null = null;
+  private handlers: Map<string, Set<EventHandler>> = new Map();
+  private applicationId: string = 'landlord-app';
   private isConnected: boolean = false;
-  private reconnectAttempts: number = 0;
-  private subscriptions: Map<string, Set<Function>> = new Map();
-  private appId: string = 'landlord-app';
-  private netInfoUnsubscribe: (() => void) | null = null;
 
   // Инициализация сервиса синхронизации
-  async initialize(appId?: string): Promise<boolean> {
-    if (appId) {
-      this.appId = appId;
-    }
-    
-    if (this.socket) {
-      return this.isConnected;
-    }
-    
+  async initialize(): Promise<void> {
     try {
-      // Проверяем состояние сети
-      const netState = await NetInfo.fetch();
-      if (!netState.isConnected) {
-        console.log('Нет подключения к сети');
-        this.setupNetworkListener();
-        return false;
-      }
+      // Получаем токен доступа
+      const token = await AsyncStorage.getItem('shepsigrad_landlord_token');
       
-      // Подключаемся к серверу
-      this.socket = io(API_URL, {
-        transports: ['websocket'],
-        query: {
-          appId: this.appId,
-          platform: Platform.OS
-        }
-      });
-      
-      // Настройка обработчиков событий
-      this.setupSocketHandlers();
-      this.setupNetworkListener();
-      
-      return new Promise<boolean>((resolve) => {
-        if (!this.socket) {
-          resolve(false);
-          return;
-        }
-        
-        // Обработчик для подтверждения подключения
-        this.socket.once('connect', () => {
-          this.isConnected = true;
-          this.reconnectAttempts = 0;
-          console.log('Соединение установлено');
-          resolve(true);
-        });
-        
-        // Обработчик для ошибки подключения
-        this.socket.once('connect_error', (error) => {
-          console.error('Ошибка подключения:', error);
-          this.isConnected = false;
-          this.reconnect();
-          resolve(false);
-        });
-      });
-    } catch (error) {
-      console.error('Ошибка инициализации синхронизации:', error);
-      return false;
-    }
-  }
-
-  // Настройка слушателя состояния сети
-  private setupNetworkListener(): void {
-    if (this.netInfoUnsubscribe) {
-      this.netInfoUnsubscribe();
-    }
-    
-    this.netInfoUnsubscribe = NetInfo.addEventListener(state => {
-      if (state.isConnected && !this.isConnected) {
-        console.log('Сеть восстановлена, переподключение...');
-        this.reconnect();
-      } else if (!state.isConnected && this.isConnected) {
-        console.log('Соединение с сетью потеряно');
-        if (this.socket) {
-          this.socket.disconnect();
-        }
-        this.isConnected = false;
-      }
-    });
-  }
-
-  // Настройка обработчиков событий сокета
-  private setupSocketHandlers(): void {
-    if (!this.socket) return;
-    
-    this.socket.on('connect', () => {
-      console.log('Соединение установлено');
-      this.isConnected = true;
-      this.reconnectAttempts = 0;
-    });
-    
-    this.socket.on('disconnect', () => {
-      console.log('Соединение разорвано');
-      this.isConnected = false;
-    });
-    
-    // Обработчики событий синхронизации
-    this.socket.on(SyncEventType.PROPERTY, (data) => {
-      this.notifySubscribers(SyncEventType.PROPERTY, data);
-    });
-    
-    this.socket.on(SyncEventType.BOOKING, (data) => {
-      this.notifySubscribers(SyncEventType.BOOKING, data);
-    });
-    
-    this.socket.on(SyncEventType.CHAT, (data) => {
-      this.notifySubscribers(SyncEventType.CHAT, data);
-    });
-    
-    this.socket.on(SyncEventType.NOTIFICATION, (data) => {
-      this.notifySubscribers(SyncEventType.NOTIFICATION, data);
-    });
-  }
-
-  // Повторное подключение
-  private reconnect(): void {
-    if (this.reconnectAttempts >= 5) {
-      console.error('Превышено число попыток переподключения');
-      return;
-    }
-    
-    if (this.socket) {
-      this.socket.removeAllListeners();
-      this.socket.disconnect();
-      this.socket = null;
-    }
-    
-    setTimeout(async () => {
-      this.reconnectAttempts++;
-      console.log(`Попытка переподключения ${this.reconnectAttempts}/5...`);
-      await this.initialize();
-    }, 2000 * Math.pow(1.5, this.reconnectAttempts));
-  }
-
-  // Уведомление подписчиков о событии
-  private notifySubscribers(eventType: SyncEventType, data: any): void {
-    const subscribers = this.subscriptions.get(eventType);
-    
-    if (subscribers) {
-      subscribers.forEach(callback => {
-        try {
-          callback(data);
-        } catch (error) {
-          console.error(`Ошибка в подписчике для ${eventType}:`, error);
-        }
-      });
-    }
-  }
-
-  // Подписка на обновления объекта недвижимости
-  subscribeToProperty(propertyId: string, callback: (data: any) => void): () => void {
-    if (!this.socket || !this.isConnected) {
-      console.warn('Невозможно подписаться: нет соединения');
-      return () => {};
-    }
-    
-    this.socket.emit('subscribe-property', propertyId);
-    
-    const wrappedCallback = (data: any) => {
-      if (data.propertyId === propertyId) {
-        callback(data);
-      }
-    };
-    
-    this.addSubscriber(SyncEventType.PROPERTY, wrappedCallback);
-    
-    return () => {
-      this.removeSubscriber(SyncEventType.PROPERTY, wrappedCallback);
-      if (this.socket && this.isConnected) {
-        this.socket.emit('unsubscribe-property', propertyId);
-      }
-    };
-  }
-
-  // Подписка на чат
-  subscribeToChat(chatId: string, callback: (message: any) => void): () => void {
-    if (!this.socket || !this.isConnected) {
-      console.warn('Невозможно подписаться: нет соединения');
-      return () => {};
-    }
-    
-    this.socket.emit('join-chat', chatId);
-    
-    const wrappedCallback = (data: any) => {
-      if (data.chatId === chatId) {
-        callback(data.message);
-      }
-    };
-    
-    this.addSubscriber(SyncEventType.CHAT, wrappedCallback);
-    
-    return () => {
-      this.removeSubscriber(SyncEventType.CHAT, wrappedCallback);
-      if (this.socket && this.isConnected) {
-        this.socket.emit('leave-chat', chatId);
-      }
-    };
-  }
-
-  // Отправка сообщения в чат
-  sendChatMessage(chatId: string, message: any): Promise<boolean> {
-    return new Promise((resolve, reject) => {
-      if (!this.socket || !this.isConnected) {
-        reject(new Error('Невозможно отправить сообщение: нет соединения'));
+      if (!token) {
+        console.log('Токен не найден, синхронизация не будет работать');
         return;
       }
-      
-      this.socket.emit('send-message', { chatId, message }, (response: any) => {
-        if (response && response.error) {
-          reject(new Error(response.error));
-        } else {
-          resolve(true);
+
+      // Создаем сокет-соединение
+      this.socket = io(`${API_CONFIG.baseUrl}/sync`, {
+        auth: {
+          token,
+          appId: this.applicationId,
+          appType: 'landlord'
+        },
+        transports: ['websocket'],
+        reconnection: true,
+        reconnectionAttempts: 5,
+        reconnectionDelay: 1000,
+      });
+
+      // Настраиваем обработчики событий сокета
+      this.socket.on('connect', this.handleConnect);
+      this.socket.on('disconnect', this.handleDisconnect);
+      this.socket.on('error', this.handleError);
+      this.socket.on('sync_event', this.handleSyncEvent);
+
+      // Подписываемся на все каналы синхронизации
+      Object.values(SyncChannel).forEach(channel => {
+        this.socket?.on(channel, (event: SyncEvent) => {
+          this.notifyHandlers(channel, event);
+        });
+      });
+
+      console.log('Сервис синхронизации инициализирован');
+    } catch (error) {
+      console.error('Ошибка инициализации сервиса синхронизации:', error);
+    }
+  }
+
+  // Обработчик подключения
+  private handleConnect = () => {
+    console.log('Соединение с сервером синхронизации установлено');
+    this.isConnected = true;
+  };
+
+  // Обработчик отключения
+  private handleDisconnect = (reason: string) => {
+    console.log('Соединение с сервером синхронизации разорвано:', reason);
+    this.isConnected = false;
+  };
+
+  // Обработчик ошибок
+  private handleError = (error: Error) => {
+    console.error('Ошибка сервера синхронизации:', error);
+  };
+
+  // Обработчик событий синхронизации
+  private handleSyncEvent = (event: SyncEvent) => {
+    // Игнорируем события от текущего приложения
+    if (event.source === this.applicationId) {
+      return;
+    }
+
+    // Проверяем, предназначено ли событие для этого приложения
+    if (event.targetApps && !event.targetApps.includes(this.applicationId)) {
+      return;
+    }
+
+    // Уведомляем всех подписчиков
+    this.notifyHandlers('sync_event', event);
+  };
+
+  // Уведомление всех обработчиков о событии
+  private notifyHandlers(channel: string, event: SyncEvent) {
+    const handlers = this.handlers.get(channel);
+    if (handlers) {
+      handlers.forEach(handler => {
+        try {
+          handler(event);
+        } catch (error) {
+          console.error(`Ошибка в обработчике события ${channel}:`, error);
         }
       });
-    });
+    }
   }
 
-  // Добавление подписчика
-  private addSubscriber(eventType: SyncEventType, callback: Function): void {
-    if (!this.subscriptions.has(eventType)) {
-      this.subscriptions.set(eventType, new Set());
+  // Подписка на канал синхронизации
+  subscribe<T>(channel: SyncChannel | 'sync_event', handler: EventHandler<T>): () => void {
+    if (!this.handlers.has(channel)) {
+      this.handlers.set(channel, new Set());
     }
     
-    this.subscriptions.get(eventType)?.add(callback);
+    const handlers = this.handlers.get(channel)!;
+    handlers.add(handler as EventHandler);
+    
+    // Возвращаем функцию для отписки
+    return () => {
+      handlers.delete(handler as EventHandler);
+      if (handlers.size === 0) {
+        this.handlers.delete(channel);
+      }
+    };
   }
 
-  // Удаление подписчика
-  private removeSubscriber(eventType: SyncEventType, callback: Function): void {
-    const subscribers = this.subscriptions.get(eventType);
-    if (subscribers) {
-      subscribers.delete(callback);
+  // Отправка события синхронизации
+  publish<T>(channel: SyncChannel, type: string, payload: T, targetApps?: string[]): void {
+    if (!this.socket || !this.isConnected) {
+      console.warn('Невозможно отправить событие: нет соединения');
+      return;
     }
+
+    const event: SyncEvent<T> = {
+      type,
+      payload,
+      timestamp: Date.now(),
+      source: this.applicationId,
+      targetApps
+    };
+
+    this.socket.emit(channel, event);
   }
 
-  // Отключение
+  // Закрытие соединения
   disconnect(): void {
-    if (this.netInfoUnsubscribe) {
-      this.netInfoUnsubscribe();
-      this.netInfoUnsubscribe = null;
-    }
-    
     if (this.socket) {
-      this.socket.removeAllListeners();
       this.socket.disconnect();
       this.socket = null;
+      this.isConnected = false;
+      this.handlers.clear();
     }
-    
-    this.isConnected = false;
+  }
+
+  // Проверка состояния соединения
+  isConnectedToServer(): boolean {
+    return this.isConnected;
   }
 }
 
 // Экспортируем единственный экземпляр сервиса
-export const syncService = new SyncService(); 
+export const syncService = new SyncService();
+
+// Хук для использования синхронизации в компонентах
+export const useSyncService = () => {
+  const [isInitialized, setIsInitialized] = useState(false);
+
+  useEffect(() => {
+    const initSync = async () => {
+      await syncService.initialize();
+      setIsInitialized(true);
+    };
+
+    initSync();
+
+    return () => {
+      syncService.disconnect();
+    };
+  }, []);
+
+  return {
+    syncService,
+    isInitialized,
+    subscribe: syncService.subscribe.bind(syncService),
+    publish: syncService.publish.bind(syncService),
+  };
+}; 

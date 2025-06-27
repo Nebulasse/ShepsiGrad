@@ -27,9 +27,8 @@ export interface PropertyImage {
     created_at: Date;
 }
 
-// Кэш для часто запрашиваемых свойств
 const propertyCache = new Map<string, {data: any, timestamp: number}>();
-const CACHE_TTL = 5 * 60 * 1000; // 5 минут
+const CACHE_TTL = 5 * 60 * 1000;
 
 export class PropertyModel {
     static async create(propertyData: Omit<Property, 'id' | 'created_at' | 'updated_at'>, images?: string[]): Promise<Property> {
@@ -59,13 +58,11 @@ export class PropertyModel {
     }
 
     static async findById(id: string): Promise<Property & { images: PropertyImage[] } | null> {
-        // Проверяем кэш
         const cached = propertyCache.get(id);
         if (cached && (Date.now() - cached.timestamp) < CACHE_TTL) {
             return cached.data;
         }
 
-        // Оптимизированный запрос с получением всех необходимых данных за один запрос
         const { data, error } = await supabase
             .from('properties')
             .select(`
@@ -78,15 +75,12 @@ export class PropertyModel {
             .single();
 
         if (error) throw error;
-        
-        // Сохраняем в кэш
         if (data) {
             propertyCache.set(id, {
                 data,
                 timestamp: Date.now()
             });
         }
-        
         return data;
     }
 
@@ -109,14 +103,11 @@ export class PropertyModel {
             amenities?: string[];
         };
     }): Promise<{ data: Property[]; error: any; count: number }> {
-        // Создаем ключ кэша на основе параметров запроса
         const cacheKey = `properties_${start}_${end}_${JSON.stringify(filters)}`;
         const cached = propertyCache.get(cacheKey);
-        
         if (cached && (Date.now() - cached.timestamp) < CACHE_TTL) {
             return cached.data;
         }
-        
         let query = supabase
             .from('properties')
             .select(`
@@ -124,7 +115,6 @@ export class PropertyModel {
                 property_images (*)
             `, { count: 'exact' })
             .eq('status', 'active');
-
         if (filters.city) {
             query = query.eq('city', filters.city);
         }
@@ -152,26 +142,20 @@ export class PropertyModel {
         if (filters.amenities && filters.amenities.length > 0) {
             query = query.contains('amenities', filters.amenities);
         }
-
         if (start !== undefined && end !== undefined) {
             query = query.range(start, end);
         }
-
         const { data, error, count } = await query
             .order('created_at', { ascending: false });
-
         const result = {
             data: data || [],
             error,
             count: count || 0
         };
-        
-        // Сохраняем результат в кэш
         propertyCache.set(cacheKey, {
             data: result,
             timestamp: Date.now()
         });
-
         return result;
     }
 
@@ -182,18 +166,13 @@ export class PropertyModel {
             .eq('id', id)
             .select()
             .single();
-
         if (error) throw error;
-        
-        // Инвалидируем кэш при обновлении
         propertyCache.delete(id);
-        // Очищаем кэш списков, так как они могут содержать это свойство
         for (const key of propertyCache.keys()) {
             if (key.startsWith('properties_')) {
                 propertyCache.delete(key);
             }
         }
-        
         return data;
     }
 
@@ -202,42 +181,21 @@ export class PropertyModel {
             .from('properties')
             .delete()
             .eq('id', id);
-
         if (error) throw error;
-        
-        // Инвалидируем кэш при удалении
         propertyCache.delete(id);
-        // Очищаем кэш списков, так как они могут содержать это свойство
-        for (const key of propertyCache.keys()) {
-            if (key.startsWith('properties_')) {
-                propertyCache.delete(key);
-            }
-        }
     }
 
     static async addPropertyImages(propertyId: string, imageUrls: string[]): Promise<PropertyImage[]> {
-        if (!imageUrls || imageUrls.length === 0) {
-            return [];
-        }
-
-        const { data: existingImages } = await supabase
-            .from('property_images')
-            .select('*')
-            .eq('property_id', propertyId);
-
-        const hasPrimary = existingImages && existingImages.some(img => img.is_primary);
-        
         const imageRecords = imageUrls.map((url, index) => ({
             property_id: propertyId,
             image_url: url,
-            is_primary: !hasPrimary && index === 0
+            is_primary: index === 0,
+            created_at: new Date()
         }));
-
         const { data, error } = await supabase
             .from('property_images')
             .insert(imageRecords)
             .select();
-
         if (error) throw error;
         return data;
     }
@@ -247,23 +205,19 @@ export class PropertyModel {
             .from('property_images')
             .delete()
             .eq('id', imageId);
-
         if (error) throw error;
     }
 
     static async setPrimaryImage(imageId: string, propertyId: string): Promise<void> {
-        const { error: resetError } = await supabase
-            .from('property_images')
-            .update({ is_primary: false })
-            .eq('property_id', propertyId);
-
-        if (resetError) throw resetError;
-
         const { error } = await supabase
             .from('property_images')
             .update({ is_primary: true })
             .eq('id', imageId);
-
         if (error) throw error;
+        await supabase
+            .from('property_images')
+            .update({ is_primary: false })
+            .eq('property_id', propertyId)
+            .neq('id', imageId);
     }
 } 

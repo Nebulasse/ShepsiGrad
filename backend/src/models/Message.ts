@@ -47,7 +47,7 @@ export class Message {
   @Column({ nullable: true })
   attachmentUrl?: string;
 
-  // Связи
+  // Relations
   @ManyToOne(() => Chat, chat => chat.messages)
   @JoinColumn({ name: 'chatId' })
   chat: Chat;

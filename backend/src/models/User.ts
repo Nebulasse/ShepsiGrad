@@ -42,7 +42,6 @@ export class User {
             .select('*')
             .eq('id', id)
             .single();
-        
         if (error) throw error;
         return data ? new User(data) : null;
     }
@@ -53,7 +52,6 @@ export class User {
             .select('*')
             .eq('email', email)
             .single();
-        
         if (error && error.code !== 'PGRST116') throw error;
         return data ? new User(data) : null;
     }
@@ -62,16 +60,11 @@ export class User {
         const { data, error } = await supabase
             .from('users')
             .select('*');
-        
-        // Фильтруем результаты вручную, так как Supabase не поддерживает сложные запросы
         if (error) throw error;
-        
         if (!data || data.length === 0) return null;
-        
         const filtered = data.filter(item => {
             return Object.keys(query).every(key => item[key] === query[key]);
         });
-        
         return filtered.length > 0 ? new User(filtered[0]) : null;
     }
     
@@ -80,13 +73,11 @@ export class User {
             const salt = await bcrypt.genSalt(10);
             userData.password = await bcrypt.hash(userData.password, salt);
         }
-        
         const { data, error } = await supabase
             .from('users')
             .insert([userData])
             .select()
             .single();
-        
         if (error) throw error;
         return new User(data);
     }
@@ -96,14 +87,12 @@ export class User {
             const salt = await bcrypt.genSalt(10);
             userData.password = await bcrypt.hash(userData.password, salt);
         }
-    
         const { data, error } = await supabase
             .from('users')
             .update(userData)
             .eq('id', id)
             .select()
             .single();
-        
         if (error) throw error;
         return new User(data);
     }
@@ -113,7 +102,6 @@ export class User {
             .from('users')
             .delete()
             .eq('id', id);
-        
         if (error) throw error;
     }
     
@@ -121,7 +109,6 @@ export class User {
         return bcrypt.compare(password, hashedPassword);
     }
     
-    // Метод для преобразования объекта пользователя в публичный формат
     toPublic(): Partial<User> {
         return {
             id: this.id,

@@ -1,32 +1,31 @@
-FROM node:16-alpine
+FROM node:18-alpine
 
 # Создаем директорию приложения
 WORKDIR /app
 
-# Устанавливаем зависимости
+# Копируем package.json и package-lock.json
 COPY package*.json ./
-RUN npm cache clean --force && npm install
+
+# Устанавливаем зависимости
+RUN npm install --production=false
 
 # Копируем исходный код
 COPY . .
 
 # Компилируем TypeScript в JavaScript
-RUN npm run build && npm prune --production
+RUN npm run build
 
-# Создаем директорию для загрузок
-RUN mkdir -p /app/uploads
-RUN chmod 777 /app/uploads
+# Удаляем dev-зависимости
+RUN npm prune --production
 
-# Создаем директорию для логов
-RUN mkdir -p /app/logs
-RUN chmod 777 /app/logs
+# Создаем директории
+RUN mkdir -p /app/uploads /app/logs && \
+    chmod 777 /app/uploads /app/logs
 
 # Создаем непривилегированного пользователя
 RUN addgroup -g 1001 -S nodejs && \
-    adduser -S nodeuser -u 1001 -G nodejs
-
-# Устанавливаем права на директории
-RUN chown -R nodeuser:nodejs /app
+    adduser -S nodeuser -u 1001 -G nodejs && \
+    chown -R nodeuser:nodejs /app
 
 # Переключаемся на непривилегированного пользователя
 USER nodeuser

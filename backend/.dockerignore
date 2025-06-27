@@ -52,4 +52,12 @@ docs
 Thumbs.db
 .dockerignore
 docker-compose*.yml
-Dockerfile* 
+Dockerfile*
+
+# Дополнительные файлы
+*.pid
+*.seed
+*.pid.lock
+*.swp
+*.swo
+*~ 

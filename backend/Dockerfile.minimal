@@ -1,16 +1,22 @@
-FROM node:16-alpine
+FROM node:18-alpine
 
 # Создаем директорию приложения
 WORKDIR /app
 
-# Копируем package.json и package-lock.json
+# Копируем только package файлы
 COPY package*.json ./
 
-# Устанавливаем зависимости
-RUN npm ci --only=production
+# Устанавливаем зависимости с подробным выводом
+RUN npm install --verbose
 
 # Копируем исходный код
 COPY . .
+
+# Собираем проект
+RUN npm run build
+
+# Удаляем dev-зависимости
+RUN npm prune --production
 
 # Создаем директорию для загрузок
 RUN mkdir -p /app/uploads
@@ -34,4 +40,4 @@ USER nodeuser
 EXPOSE 3000
 
 # Запускаем приложение
-CMD ["node", "src/server-minimal.js"] 
+CMD ["npm", "start"] 

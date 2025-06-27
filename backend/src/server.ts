@@ -28,20 +28,27 @@ app.use(morgan('combined'));
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true }));
 
-// Базовые роуты
+// Простой healthcheck для Railway
 app.get('/', (req, res) => {
-  res.json({ 
+  res.status(200).json({ 
     message: 'ShepsiGrad Backend API', 
     version: '1.0.0',
-    status: 'running'
+    status: 'running',
+    timestamp: new Date().toISOString()
   });
 });
 
+// Healthcheck endpoint
 app.get('/health', (req, res) => {
-  res.json({ 
+  res.status(200).json({ 
     status: 'healthy',
     timestamp: new Date().toISOString()
   });
+});
+
+// Простой ping endpoint
+app.get('/ping', (req, res) => {
+  res.status(200).send('pong');
 });
 
 // Заглушки для API роутов
@@ -104,10 +111,26 @@ app.use('*', (req, res) => {
 
 const PORT = process.env.PORT || 3000;
 
-server.listen(PORT, () => {
+// Улучшенная обработка запуска сервера
+server.listen(PORT, '0.0.0.0', () => {
   console.log(`🚀 Server running on port ${PORT}`);
   console.log(`📡 Socket.IO server ready`);
   console.log(`🌍 Environment: ${process.env.NODE_ENV || 'development'}`);
+  console.log(`🔗 Health check available at: http://localhost:${PORT}/health`);
+});
+
+// Обработка ошибок сервера
+server.on('error', (error) => {
+  console.error('Server error:', error);
+  process.exit(1);
+});
+
+// Graceful shutdown
+process.on('SIGTERM', () => {
+  console.log('SIGTERM received, shutting down gracefully');
+  server.close(() => {
+    console.log('Process terminated');
+  });
 });
 
 export default app; 

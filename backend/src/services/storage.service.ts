@@ -3,9 +3,6 @@ import { createReadStream } from 'fs';
 import { logger } from './loggerService';
 // import { env } from '../config/env';
 
-// Создаем логгер для модуля
-const logger = getModuleLogger('StorageService');
-
 // Типы хранилищ
 export enum StorageBucket {
   PROPERTY_IMAGES = 'property-images',

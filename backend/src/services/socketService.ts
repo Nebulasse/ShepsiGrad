@@ -2,10 +2,12 @@ import { Server } from 'socket.io';
 import { Server as HttpServer } from 'http';
 import { verify } from 'jsonwebtoken';
 import { UserModel } from '../models/User';
+import { LoggerService } from './loggerService';
 
 interface SocketUser {
   userId: string;
   socketId: string;
+  appType: 'tenant' | 'landlord';
 }
 
 export class SocketService {
@@ -15,7 +17,7 @@ export class SocketService {
   constructor(server: HttpServer) {
     this.io = new Server(server, {
       cors: {
-        origin: process.env.FRONTEND_URL || 'http://localhost:3000',
+        origin: '*', // Разрешаем подключения с любого источника
         methods: ['GET', 'POST']
       }
     });
@@ -27,6 +29,8 @@ export class SocketService {
     this.io.use(async (socket, next) => {
       try {
         const token = socket.handshake.auth.token;
+        const appType = socket.handshake.auth.appType || 'tenant';
+
         if (!token) {
           return next(new Error('Требуется авторизация'));
         }
@@ -39,30 +43,51 @@ export class SocketService {
         }
 
         socket.data.user = user;
+        socket.data.appType = appType;
+        
+        LoggerService.info(`WebSocket: пользователь авторизован`, { 
+          userId: user.id, 
+          appType 
+        });
+        
         next();
       } catch (error) {
+        LoggerService.error('WebSocket: ошибка аутентификации', { error });
         next(new Error('Ошибка аутентификации'));
       }
     });
 
     this.io.on('connection', (socket) => {
       const user = socket.data.user;
-      console.log(`Пользователь подключился: ${user.id}`);
+      const appType = socket.data.appType;
+      
+      LoggerService.info(`WebSocket: пользователь подключился`, { 
+        userId: user.id, 
+        appType 
+      });
 
       // Сохраняем информацию о подключенном пользователе
       this.connectedUsers.set(user.id, {
         userId: user.id,
-        socketId: socket.id
+        socketId: socket.id,
+        appType
       });
 
       // Обработка личных сообщений
-      socket.on('private_message', async (data: { to: string; message: string }) => {
+      socket.on('private_message', async (data: { to: string; message: string; propertyId?: string }) => {
         const recipient = this.connectedUsers.get(data.to);
         if (recipient) {
           this.io.to(recipient.socketId).emit('private_message', {
             from: user.id,
             message: data.message,
+            propertyId: data.propertyId,
             timestamp: new Date()
+          });
+          
+          LoggerService.info(`WebSocket: отправлено личное сообщение`, { 
+            from: user.id, 
+            to: data.to, 
+            propertyId: data.propertyId 
           });
         }
       });
@@ -77,12 +102,21 @@ export class SocketService {
             content: data.content,
             timestamp: new Date()
           });
+          
+          LoggerService.info(`WebSocket: отправлено уведомление`, { 
+            from: user.id, 
+            to: data.to, 
+            type: data.type 
+          });
         }
       });
 
       // Обработка отключения
       socket.on('disconnect', () => {
-        console.log(`Пользователь отключился: ${user.id}`);
+        LoggerService.info(`WebSocket: пользователь отключился`, { 
+          userId: user.id, 
+          appType 
+        });
         this.connectedUsers.delete(user.id);
       });
     });
@@ -97,26 +131,64 @@ export class SocketService {
         content,
         timestamp: new Date()
       });
+      
+      LoggerService.info(`WebSocket: отправлено уведомление через API`, { 
+        to: userId, 
+        type 
+      });
     }
   }
 
   // Метод для отправки сообщения конкретному пользователю
-  public sendPrivateMessage(from: string, to: string, message: string) {
+  public sendPrivateMessage(from: string, to: string, message: string, propertyId?: string) {
     const recipient = this.connectedUsers.get(to);
     if (recipient) {
       this.io.to(recipient.socketId).emit('private_message', {
         from,
         message,
+        propertyId,
         timestamp: new Date()
+      });
+      
+      LoggerService.info(`WebSocket: отправлено личное сообщение через API`, { 
+        from, 
+        to, 
+        propertyId 
       });
     }
   }
 
-  // Метод для отправки сообщения всем пользователям
-  public broadcastMessage(message: string, excludeUserId?: string) {
-    this.io.emit('broadcast_message', {
-      message,
-      timestamp: new Date()
-    });
+  // Метод для отправки сообщения всем пользователям определенного типа
+  public broadcastMessage(message: string, appType?: 'tenant' | 'landlord') {
+    if (appType) {
+      // Находим всех пользователей указанного типа
+      const targetSockets = Array.from(this.connectedUsers.values())
+        .filter(user => user.appType === appType)
+        .map(user => user.socketId);
+      
+      // Отправляем сообщение только этим пользователям
+      this.io.to(targetSockets).emit('broadcast_message', {
+        message,
+        timestamp: new Date()
+      });
+      
+      LoggerService.info(`WebSocket: отправлено широковещательное сообщение`, { 
+        appType, 
+        recipientCount: targetSockets.length 
+      });
+    } else {
+      // Отправляем всем
+      this.io.emit('broadcast_message', {
+        message,
+        timestamp: new Date()
+      });
+      
+      LoggerService.info(`WebSocket: отправлено широковещательное сообщение всем пользователям`);
+    }
+  }
+  
+  // Получить список подключенных пользователей
+  public getConnectedUsers() {
+    return Array.from(this.connectedUsers.values());
   }
 } 

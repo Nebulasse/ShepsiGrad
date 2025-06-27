@@ -2,14 +2,15 @@ import { Request, Response, NextFunction } from 'express';
 import jwt from 'jsonwebtoken';
 import { User } from '../models/User';
 import { LoggerService } from '../services/loggerService';
-import { JWT_SECRET } from '../config/appConfig';
+import { env } from '../config/env';
 
 // Расширяем интерфейс Request для типизации
 export interface AuthRequest extends Request {
     user?: any;
 }
 
-export const auth = async (req: AuthRequest, res: Response, next: NextFunction) => {
+// Аутентификация пользователя
+export const authenticate = async (req: AuthRequest, res: Response, next: NextFunction) => {
     try {
         const token = req.header('Authorization')?.replace('Bearer ', '');
 
@@ -17,7 +18,7 @@ export const auth = async (req: AuthRequest, res: Response, next: NextFunction) 
             throw new Error();
         }
 
-        const decoded = jwt.verify(token, process.env.JWT_SECRET || 'your-secret-key');
+        const decoded = jwt.verify(token, env.jwt.secret);
         const user = await User.findOne({ _id: (decoded as any)._id });
 
         if (!user) {
@@ -32,14 +33,8 @@ export const auth = async (req: AuthRequest, res: Response, next: NextFunction) 
     }
 };
 
-export const generateToken = (userId: string): string => {
-    return jwt.sign({ _id: userId }, process.env.JWT_SECRET || 'your-secret-key', {
-        expiresIn: '7d'
-    });
-};
-
-// Middleware для проверки роли пользователя
-export const checkRole = (roles: string[]) => {
+// Проверка роли пользователя
+export const authorize = (...roles: string[]) => {
     return (req: AuthRequest, res: Response, next: NextFunction) => {
         if (!req.user) {
             return res.status(401).json({ error: 'Not authenticated' });
@@ -54,4 +49,17 @@ export const checkRole = (roles: string[]) => {
 
         next();
     };
+};
+
+export const auth = authenticate; // Для обратной совместимости
+
+export const generateToken = (userId: string): string => {
+    return jwt.sign({ _id: userId }, env.jwt.secret, {
+        expiresIn: '7d'
+    });
+};
+
+// Middleware для проверки роли пользователя (для обратной совместимости)
+export const checkRole = (roles: string[]) => {
+    return authorize(...roles);
 }; 

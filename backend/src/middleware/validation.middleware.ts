@@ -1,6 +1,7 @@
 import { Request, Response, NextFunction } from 'express';
 import { Schema } from 'joi';
 import { getModuleLogger } from '../utils/logger';
+import { validationResult, ValidationChain } from 'express-validator';
 
 const logger = getModuleLogger('ValidationMiddleware');
 
@@ -95,4 +96,39 @@ export const validateQuery = (schema: Schema) => {
     req.query = value;
     next();
   };
-}; 
+};
+
+/**
+ * Middleware для валидации запросов с помощью express-validator
+ * @param validations Массив валидаторов
+ * @returns Middleware функция
+ */
+export const validateRequest = (validations: ValidationChain[]) => {
+  return async (req: Request, res: Response, next: NextFunction) => {
+    // Выполняем все валидаторы
+    for (const validation of validations) {
+      const result = await validation.run(req);
+      if (result.errors.length) break;
+    }
+
+    // Собираем ошибки валидации
+    const errors = validationResult(req);
+    
+    // Если ошибок нет, продолжаем выполнение запроса
+    if (errors.isEmpty()) {
+      return next();
+    }
+
+    // Логируем ошибки валидации
+    logger.debug(`Validation errors: ${JSON.stringify(errors.array())}`);
+
+    // Возвращаем ошибки клиенту
+    return res.status(400).json({
+      status: 'error',
+      message: 'Validation error',
+      errors: errors.array(),
+    });
+  };
+};
+
+export default validateRequest; 

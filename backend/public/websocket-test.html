@@ -1,0 +1,463 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Тестирование WebSocket</title>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      line-height: 1.6;
+      max-width: 1000px;
+      margin: 0 auto;
+      padding: 20px;
+    }
+    .container {
+      display: flex;
+      gap: 20px;
+    }
+    .panel {
+      flex: 1;
+      border: 1px solid #ddd;
+      border-radius: 5px;
+      padding: 15px;
+      background-color: #f9f9f9;
+    }
+    .connection-status {
+      padding: 8px;
+      border-radius: 4px;
+      margin-bottom: 10px;
+      font-weight: bold;
+    }
+    .connected {
+      background-color: #d4edda;
+      color: #155724;
+    }
+    .disconnected {
+      background-color: #f8d7da;
+      color: #721c24;
+    }
+    .form-group {
+      margin-bottom: 15px;
+    }
+    label {
+      display: block;
+      margin-bottom: 5px;
+      font-weight: bold;
+    }
+    input, select, textarea {
+      width: 100%;
+      padding: 8px;
+      border: 1px solid #ddd;
+      border-radius: 4px;
+      box-sizing: border-box;
+    }
+    button {
+      background-color: #4CAF50;
+      color: white;
+      border: none;
+      padding: 10px 15px;
+      border-radius: 4px;
+      cursor: pointer;
+    }
+    button:hover {
+      background-color: #45a049;
+    }
+    button:disabled {
+      background-color: #cccccc;
+      cursor: not-allowed;
+    }
+    .message-list {
+      height: 300px;
+      overflow-y: auto;
+      border: 1px solid #ddd;
+      padding: 10px;
+      background-color: white;
+      margin-bottom: 15px;
+    }
+    .message {
+      padding: 8px;
+      margin-bottom: 8px;
+      border-radius: 4px;
+    }
+    .message.received {
+      background-color: #e3f2fd;
+      border-left: 4px solid #2196F3;
+    }
+    .message.sent {
+      background-color: #e8f5e9;
+      border-left: 4px solid #4CAF50;
+    }
+    .message.system {
+      background-color: #fff3e0;
+      border-left: 4px solid #ff9800;
+    }
+    .message-header {
+      display: flex;
+      justify-content: space-between;
+      margin-bottom: 5px;
+      font-size: 0.9em;
+      color: #666;
+    }
+    .users-list {
+      margin-top: 20px;
+    }
+    .user-item {
+      padding: 8px;
+      margin-bottom: 5px;
+      background-color: #f1f1f1;
+      border-radius: 4px;
+      display: flex;
+      justify-content: space-between;
+    }
+    .app-type {
+      font-size: 0.8em;
+      background-color: #e0e0e0;
+      padding: 2px 6px;
+      border-radius: 10px;
+    }
+    .app-type.tenant {
+      background-color: #bbdefb;
+    }
+    .app-type.landlord {
+      background-color: #c8e6c9;
+    }
+  </style>
+</head>
+<body>
+  <h1>Тестирование WebSocket соединения</h1>
+  
+  <div class="container">
+    <!-- Панель подключения -->
+    <div class="panel">
+      <h2>Подключение</h2>
+      <div id="connectionStatus" class="connection-status disconnected">Отключено</div>
+      
+      <div class="form-group">
+        <label for="serverUrl">URL сервера:</label>
+        <input type="text" id="serverUrl" value="http://localhost:3001">
+      </div>
+      
+      <div class="form-group">
+        <label for="userId">ID пользователя:</label>
+        <input type="text" id="userId" placeholder="Введите ID пользователя">
+      </div>
+      
+      <div class="form-group">
+        <label for="appType">Тип приложения:</label>
+        <select id="appType">
+          <option value="tenant">Арендатор</option>
+          <option value="landlord">Арендодатель</option>
+        </select>
+      </div>
+      
+      <button id="connectBtn">Подключиться</button>
+      <button id="disconnectBtn" disabled>Отключиться</button>
+    </div>
+    
+    <!-- Панель сообщений -->
+    <div class="panel">
+      <h2>Сообщения</h2>
+      <div id="messageList" class="message-list"></div>
+      
+      <div class="form-group">
+        <label for="recipientId">ID получателя:</label>
+        <input type="text" id="recipientId" placeholder="Введите ID получателя">
+      </div>
+      
+      <div class="form-group">
+        <label for="messageType">Тип сообщения:</label>
+        <select id="messageType">
+          <option value="private_message">Личное сообщение</option>
+          <option value="notification">Уведомление</option>
+          <option value="broadcast">Широковещательное</option>
+        </select>
+      </div>
+      
+      <div class="form-group" id="notificationTypeGroup" style="display: none;">
+        <label for="notificationType">Тип уведомления:</label>
+        <select id="notificationType">
+          <option value="booking">Бронирование</option>
+          <option value="message">Новое сообщение</option>
+          <option value="review">Отзыв</option>
+        </select>
+      </div>
+      
+      <div class="form-group" id="broadcastTypeGroup" style="display: none;">
+        <label for="broadcastType">Целевой тип приложения:</label>
+        <select id="broadcastType">
+          <option value="">Все</option>
+          <option value="tenant">Только арендаторы</option>
+          <option value="landlord">Только арендодатели</option>
+        </select>
+      </div>
+      
+      <div class="form-group">
+        <label for="messageContent">Сообщение:</label>
+        <textarea id="messageContent" rows="3" placeholder="Введите сообщение"></textarea>
+      </div>
+      
+      <button id="sendBtn" disabled>Отправить</button>
+      <button id="getUsersBtn" disabled>Получить список пользователей</button>
+    </div>
+  </div>
+  
+  <div class="users-list">
+    <h2>Подключенные пользователи</h2>
+    <div id="usersList"></div>
+  </div>
+  
+  <script src="https://cdn.socket.io/4.5.4/socket.io.min.js"></script>
+  <script>
+    // Элементы DOM
+    const connectionStatus = document.getElementById('connectionStatus');
+    const serverUrlInput = document.getElementById('serverUrl');
+    const userIdInput = document.getElementById('userId');
+    const appTypeSelect = document.getElementById('appType');
+    const connectBtn = document.getElementById('connectBtn');
+    const disconnectBtn = document.getElementById('disconnectBtn');
+    const messageList = document.getElementById('messageList');
+    const recipientIdInput = document.getElementById('recipientId');
+    const messageTypeSelect = document.getElementById('messageType');
+    const notificationTypeGroup = document.getElementById('notificationTypeGroup');
+    const notificationTypeSelect = document.getElementById('notificationType');
+    const broadcastTypeGroup = document.getElementById('broadcastTypeGroup');
+    const broadcastTypeSelect = document.getElementById('broadcastType');
+    const messageContentInput = document.getElementById('messageContent');
+    const sendBtn = document.getElementById('sendBtn');
+    const getUsersBtn = document.getElementById('getUsersBtn');
+    const usersList = document.getElementById('usersList');
+    
+    // Переменные
+    let socket = null;
+    let currentUserId = null;
+    
+    // Обработчики событий
+    messageTypeSelect.addEventListener('change', () => {
+      const messageType = messageTypeSelect.value;
+      notificationTypeGroup.style.display = messageType === 'notification' ? 'block' : 'none';
+      broadcastTypeGroup.style.display = messageType === 'broadcast' ? 'block' : 'none';
+    });
+    
+    connectBtn.addEventListener('click', connectToServer);
+    disconnectBtn.addEventListener('click', disconnectFromServer);
+    sendBtn.addEventListener('click', sendMessage);
+    getUsersBtn.addEventListener('click', getConnectedUsers);
+    
+    // Функции
+    function connectToServer() {
+      const serverUrl = serverUrlInput.value;
+      const userId = userIdInput.value;
+      const appType = appTypeSelect.value;
+      
+      if (!serverUrl || !userId) {
+        addMessage('Укажите URL сервера и ID пользователя', 'system');
+        return;
+      }
+      
+      try {
+        // Создаем соединение
+        socket = io(serverUrl);
+        
+        // Обработчики событий сокета
+        socket.on('connect', () => {
+          addMessage(`Соединение установлено. Socket ID: ${socket.id}`, 'system');
+          
+          // Аутентифицируемся
+          socket.emit('authenticate', { userId, appType });
+        });
+        
+        socket.on('authenticated', (data) => {
+          connectionStatus.textContent = `Подключено (${data.appType})`;
+          connectionStatus.classList.remove('disconnected');
+          connectionStatus.classList.add('connected');
+          
+          currentUserId = data.userId;
+          
+          connectBtn.disabled = true;
+          disconnectBtn.disabled = false;
+          sendBtn.disabled = false;
+          getUsersBtn.disabled = false;
+          
+          addMessage(`Аутентификация успешна. ID: ${data.userId}, Тип: ${data.appType}`, 'system');
+        });
+        
+        socket.on('error', (data) => {
+          addMessage(`Ошибка: ${data.message}`, 'system');
+        });
+        
+        socket.on('private_message', (data) => {
+          addMessage(`Сообщение от ${data.from}: ${data.message}`, 'received');
+        });
+        
+        socket.on('message_sent', (data) => {
+          addMessage(`Сообщение для ${data.to} отправлено`, 'system');
+        });
+        
+        socket.on('notification', (data) => {
+          addMessage(`Уведомление от ${data.from}: ${data.type} - ${data.content}`, 'received');
+        });
+        
+        socket.on('broadcast_message', (data) => {
+          addMessage(`Широковещательное сообщение от ${data.from}: ${data.message}`, 'received');
+        });
+        
+        socket.on('users_list', (users) => {
+          displayUsers(users);
+        });
+        
+        socket.on('disconnect', () => {
+          addMessage('Соединение разорвано', 'system');
+          connectionStatus.textContent = 'Отключено';
+          connectionStatus.classList.remove('connected');
+          connectionStatus.classList.add('disconnected');
+          
+          connectBtn.disabled = false;
+          disconnectBtn.disabled = true;
+          sendBtn.disabled = true;
+          getUsersBtn.disabled = true;
+          
+          currentUserId = null;
+        });
+      } catch (error) {
+        addMessage(`Ошибка подключения: ${error.message}`, 'system');
+      }
+    }
+    
+    function disconnectFromServer() {
+      if (socket) {
+        socket.disconnect();
+        socket = null;
+      }
+    }
+    
+    function sendMessage() {
+      if (!socket || !currentUserId) {
+        addMessage('Нет активного соединения', 'system');
+        return;
+      }
+      
+      const messageType = messageTypeSelect.value;
+      const recipientId = recipientIdInput.value;
+      const content = messageContentInput.value;
+      
+      if (!content) {
+        addMessage('Введите сообщение', 'system');
+        return;
+      }
+      
+      switch (messageType) {
+        case 'private_message':
+          if (!recipientId) {
+            addMessage('Укажите ID получателя', 'system');
+            return;
+          }
+          
+          socket.emit('private_message', {
+            to: recipientId,
+            message: content
+          });
+          
+          addMessage(`Сообщение для ${recipientId}: ${content}`, 'sent');
+          break;
+          
+        case 'notification':
+          if (!recipientId) {
+            addMessage('Укажите ID получателя', 'system');
+            return;
+          }
+          
+          const notificationType = notificationTypeSelect.value;
+          
+          socket.emit('notification', {
+            to: recipientId,
+            type: notificationType,
+            content: content
+          });
+          
+          addMessage(`Уведомление для ${recipientId}: ${notificationType} - ${content}`, 'sent');
+          break;
+          
+        case 'broadcast':
+          const targetType = broadcastTypeSelect.value;
+          
+          socket.emit('broadcast', {
+            message: content,
+            targetType: targetType
+          });
+          
+          addMessage(`Широковещательное сообщение${targetType ? ` для ${targetType}` : ''}: ${content}`, 'sent');
+          break;
+      }
+      
+      messageContentInput.value = '';
+    }
+    
+    function getConnectedUsers() {
+      if (!socket || !currentUserId) {
+        addMessage('Нет активного соединения', 'system');
+        return;
+      }
+      
+      socket.emit('get_users');
+    }
+    
+    function addMessage(text, type) {
+      const messageDiv = document.createElement('div');
+      messageDiv.classList.add('message', type);
+      
+      const now = new Date();
+      const timeString = now.toLocaleTimeString();
+      
+      const header = document.createElement('div');
+      header.classList.add('message-header');
+      
+      const typeSpan = document.createElement('span');
+      typeSpan.textContent = type === 'received' ? 'Получено' : type === 'sent' ? 'Отправлено' : 'Система';
+      
+      const timeSpan = document.createElement('span');
+      timeSpan.textContent = timeString;
+      
+      header.appendChild(typeSpan);
+      header.appendChild(timeSpan);
+      
+      const content = document.createElement('div');
+      content.textContent = text;
+      
+      messageDiv.appendChild(header);
+      messageDiv.appendChild(content);
+      
+      messageList.appendChild(messageDiv);
+      messageList.scrollTop = messageList.scrollHeight;
+    }
+    
+    function displayUsers(users) {
+      usersList.innerHTML = '';
+      
+      if (users.length === 0) {
+        const noUsersDiv = document.createElement('div');
+        noUsersDiv.textContent = 'Нет подключенных пользователей';
+        usersList.appendChild(noUsersDiv);
+        return;
+      }
+      
+      users.forEach(user => {
+        const userDiv = document.createElement('div');
+        userDiv.classList.add('user-item');
+        
+        const userId = document.createElement('div');
+        userId.textContent = user.userId;
+        
+        const appType = document.createElement('span');
+        appType.classList.add('app-type', user.appType);
+        appType.textContent = user.appType === 'tenant' ? 'Арендатор' : 'Арендодатель';
+        
+        userDiv.appendChild(userId);
+        userDiv.appendChild(appType);
+        
+        usersList.appendChild(userDiv);
+      });
+    }
+  </script>
+</body>
+</html> 

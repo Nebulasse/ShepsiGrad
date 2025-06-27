@@ -1,232 +1,413 @@
 import axios from 'axios';
 import { v4 as uuidv4 } from 'uuid';
-import { appConfig } from '../config/appConfig';
+import { Booking } from '../models/Booking';
+import { User } from '../models/User';
+import { Property } from '../models/Property';
+import { config } from '../config/appConfig';
+import { getModuleLogger } from '../utils/logger';
 
-interface YookassaPaymentResponse {
+const logger = getModuleLogger('PaymentService');
+
+// Интерфейс для платежа
+interface Payment {
   id: string;
-  status: string;
-  paid: boolean;
-  amount: {
-    value: string;
-    currency: string;
-  };
-  created_at: string;
-  confirmation: {
-    type: string;
-    confirmation_url: string;
-  };
-  metadata?: Record<string, any>;
+  bookingId: string;
+  userId: string;
+  propertyId: string;
+  amount: number;
+  currency: string;
+  status: 'pending' | 'completed' | 'failed' | 'refunded';
+  paymentMethod: string;
+  paymentDate?: Date;
+  refundDate?: Date;
+  gatewayReference?: string;
+  metadata?: any;
 }
 
-interface YookassaPaymentStatusResponse {
-  id: string;
-  status: string;
-  paid: boolean;
-  amount: {
-    value: string;
-    currency: string;
-  };
-  created_at: string;
-  captured_at?: string;
-  metadata?: Record<string, any>;
+// Интерфейс для создания платежа
+interface CreatePaymentOptions {
+  booking: Booking;
+  user: User;
+  property: Property;
+  paymentMethod: string;
+  returnUrl: string;
 }
 
-interface YookassaRefundResponse {
-  id: string;
-  payment_id: string;
-  status: string;
-  amount: {
-    value: string;
-    currency: string;
-  };
-  created_at: string;
+// Интерфейс для обработки платежа
+interface ProcessPaymentOptions {
+  paymentId: string;
+  gatewayReference: string;
 }
 
-/**
- * Сервис для работы с платежной системой ЮКасса
- */
+// Интерфейс для возврата платежа
+interface RefundOptions {
+  paymentId: string;
+  amount?: number;
+  reason?: string;
+}
+
 class PaymentService {
-  private apiUrl: string;
-  private shopId: string;
-  private secretKey: string;
-  private returnUrl: string;
-
-  constructor() {
-    this.apiUrl = 'https://api.yookassa.ru/v3';
-    this.shopId = appConfig.payment.yookassa.shopId;
-    this.secretKey = appConfig.payment.yookassa.secretKey;
-    this.returnUrl = appConfig.payment.returnUrl;
-  }
-
-  /**
-   * Создание нового платежа
-   * @param amount Сумма платежа
-   * @param currency Валюта платежа (по умолчанию RUB)
-   * @param description Описание платежа
-   * @param metadata Дополнительные данные для платежа
-   * @returns Данные созданного платежа
-   */
-  async createPayment(
-    amount: number,
-    description: string,
-    metadata: Record<string, any> = {},
-    currency: string = 'RUB'
-  ): Promise<YookassaPaymentResponse> {
+  // Создание платежа
+  async createPayment(options: CreatePaymentOptions): Promise<Payment> {
     try {
-      const paymentData = {
+      const { booking, user, property, paymentMethod, returnUrl } = options;
+      
+      // Генерируем уникальный ID платежа
+      const paymentId = uuidv4();
+      
+      // Создаем платеж в базе данных
+      const payment: Payment = {
+        id: paymentId,
+        bookingId: booking.id,
+        userId: user.id,
+        propertyId: property.id,
+        amount: booking.totalPrice,
+        currency: 'RUB', // По умолчанию используем рубли
+        status: 'pending',
+        paymentMethod,
+        metadata: {
+          checkInDate: booking.checkInDate,
+          checkOutDate: booking.checkOutDate,
+          guestsCount: booking.guestsCount,
+        }
+      };
+      
+      // В зависимости от выбранного метода оплаты, интегрируемся с соответствующим платежным шлюзом
+      switch (paymentMethod) {
+        case 'yookassa':
+          return await this.processYookassaPayment(payment, returnUrl);
+        case 'stripe':
+          return await this.processStripePayment(payment, returnUrl);
+        default:
+          throw new Error(`Неподдерживаемый метод оплаты: ${paymentMethod}`);
+      }
+    } catch (error) {
+      logger.error('Ошибка при создании платежа:', error instanceof Error ? error.message : 'Неизвестная ошибка');
+      throw error;
+    }
+  }
+  
+  // Обработка платежа через YooKassa
+  private async processYookassaPayment(payment: Payment, returnUrl: string): Promise<Payment> {
+    try {
+      // Формируем данные для запроса к YooKassa API
+      const yookassaPayload = {
         amount: {
-          value: amount.toFixed(2),
-          currency,
+          value: payment.amount.toFixed(2),
+          currency: payment.currency
         },
         capture: true,
         confirmation: {
           type: 'redirect',
-          return_url: this.returnUrl,
+          return_url: returnUrl
         },
-        description,
-        metadata,
-        idempotence_key: uuidv4(),
+        description: `Оплата бронирования #${payment.bookingId}`,
+        metadata: {
+          paymentId: payment.id,
+          bookingId: payment.bookingId
+        }
       };
-
-      const response = await axios.post<YookassaPaymentResponse>(
-        `${this.apiUrl}/payments`,
-        paymentData,
-        {
-          auth: {
-            username: this.shopId,
-            password: this.secretKey,
-          },
-          headers: {
-            'Content-Type': 'application/json',
-            'Idempotence-Key': uuidv4(),
-          },
-        }
-      );
-
-      return response.data;
-    } catch (error) {
-      console.error('Error creating payment:', error);
-      throw new Error('Failed to create payment');
-    }
-  }
-
-  /**
-   * Получение информации о платеже по его ID
-   * @param paymentId ID платежа
-   * @returns Информация о платеже
-   */
-  async getPaymentInfo(paymentId: string): Promise<YookassaPaymentStatusResponse> {
-    try {
-      const response = await axios.get<YookassaPaymentStatusResponse>(
-        `${this.apiUrl}/payments/${paymentId}`,
-        {
-          auth: {
-            username: this.shopId,
-            password: this.secretKey,
-          },
-        }
-      );
-
-      return response.data;
-    } catch (error) {
-      console.error('Error getting payment info:', error);
-      throw new Error('Failed to get payment information');
-    }
-  }
-
-  /**
-   * Выполнение возврата платежа
-   * @param paymentId ID платежа для возврата
-   * @param amount Сумма возврата
-   * @param currency Валюта возврата (по умолчанию RUB)
-   * @param description Описание возврата
-   * @returns Информация о возврате
-   */
-  async refundPayment(
-    paymentId: string,
-    amount: number,
-    description: string = 'Возврат платежа',
-    currency: string = 'RUB'
-  ): Promise<YookassaRefundResponse> {
-    try {
-      const refundData = {
-        payment_id: paymentId,
-        amount: {
-          value: amount.toFixed(2),
-          currency,
-        },
-        description,
-        idempotence_key: uuidv4(),
-      };
-
-      const response = await axios.post<YookassaRefundResponse>(
-        `${this.apiUrl}/refunds`,
-        refundData,
-        {
-          auth: {
-            username: this.shopId,
-            password: this.secretKey,
-          },
-          headers: {
-            'Content-Type': 'application/json',
-            'Idempotence-Key': uuidv4(),
-          },
-        }
-      );
-
-      return response.data;
-    } catch (error) {
-      console.error('Error refunding payment:', error);
-      throw new Error('Failed to refund payment');
-    }
-  }
-
-  /**
-   * Проверка статуса платежа
-   * @param paymentId ID платежа
-   * @returns true если платеж успешно оплачен, иначе false
-   */
-  async isPaymentSuccessful(paymentId: string): Promise<boolean> {
-    try {
-      const paymentInfo = await this.getPaymentInfo(paymentId);
-      return paymentInfo.status === 'succeeded' && paymentInfo.paid;
-    } catch (error) {
-      console.error('Error checking payment status:', error);
-      return false;
-    }
-  }
-
-  /**
-   * Создание платежной сессии с использованием Stripe
-   * @param amount Сумма платежа
-   * @param currency Валюта платежа (по умолчанию RUB)
-   * @param description Описание платежа
-   * @param metadata Дополнительные данные для платежа
-   * @returns URL для оплаты и ID сессии
-   */
-  async createStripeSession(
-    amount: number,
-    description: string,
-    metadata: Record<string, any> = {},
-    currency: string = 'RUB'
-  ): Promise<{ session_id: string; url: string }> {
-    try {
-      // В реальном приложении здесь будет вызов API Stripe
-      // Для демонстрации возвращаем заглушку
-      console.log(`Creating Stripe session for amount: ${amount} ${currency}, description: ${description}`);
       
-      // Имитация успешного создания сессии
-      return {
-        session_id: `stripe_session_${uuidv4()}`,
-        url: `${appConfig.frontendUrl}/payment/stripe?session_id=${uuidv4()}`
+      // Отправляем запрос к YooKassa API
+      const response = await axios.post(
+        'https://api.yookassa.ru/v3/payments',
+        yookassaPayload,
+        {
+          headers: {
+            'Content-Type': 'application/json',
+            'Idempotence-Key': payment.id,
+            'Authorization': `Basic ${Buffer.from(config.payment.yookassa.shopId + ':' + config.payment.yookassa.secretKey).toString('base64')}`
+          }
+        }
+      );
+      
+      // Обновляем данные платежа
+      payment.gatewayReference = response.data.id;
+      payment.metadata = {
+        ...payment.metadata,
+        confirmationUrl: response.data.confirmation.confirmation_url,
+        yookassaResponse: response.data
       };
+      
+      // Сохраняем обновленный платеж в базу данных
+      // await this.paymentRepository.save(payment);
+      
+      return payment;
     } catch (error) {
-      console.error('Error creating Stripe session:', error);
-      throw new Error('Failed to create Stripe payment session');
+      logger.error('Ошибка при обработке платежа через YooKassa:', error instanceof Error ? error.message : 'Неизвестная ошибка');
+      
+      // Обновляем статус платежа на "failed"
+      payment.status = 'failed';
+      payment.metadata = {
+        ...payment.metadata,
+        error: error instanceof Error ? error.message : 'Неизвестная ошибка'
+      };
+      
+      // Сохраняем обновленный платеж в базу данных
+      // await this.paymentRepository.save(payment);
+      
+      throw error;
+    }
+  }
+  
+  // Обработка платежа через Stripe
+  private async processStripePayment(payment: Payment, returnUrl: string): Promise<Payment> {
+    try {
+      // Формируем данные для запроса к Stripe API
+      const stripePayload = {
+        amount: Math.round(payment.amount * 100), // Stripe работает с копейками
+        currency: payment.currency.toLowerCase(),
+        payment_method_types: ['card'],
+        description: `Оплата бронирования #${payment.bookingId}`,
+        metadata: {
+          paymentId: payment.id,
+          bookingId: payment.bookingId
+        },
+        success_url: `${returnUrl}?status=success&paymentId=${payment.id}`,
+        cancel_url: `${returnUrl}?status=cancelled&paymentId=${payment.id}`
+      };
+      
+      // Отправляем запрос к Stripe API
+      const response = await axios.post(
+        'https://api.stripe.com/v1/checkout/sessions',
+        stripePayload,
+        {
+          headers: {
+            'Content-Type': 'application/x-www-form-urlencoded',
+            'Authorization': `Bearer ${config.payment.stripe.secretKey}`
+          }
+        }
+      );
+      
+      // Обновляем данные платежа
+      payment.gatewayReference = response.data.id;
+      payment.metadata = {
+        ...payment.metadata,
+        checkoutUrl: response.data.url,
+        stripeResponse: response.data
+      };
+      
+      // Сохраняем обновленный платеж в базу данных
+      // await this.paymentRepository.save(payment);
+      
+      return payment;
+    } catch (error) {
+      logger.error('Ошибка при обработке платежа через Stripe:', error instanceof Error ? error.message : 'Неизвестная ошибка');
+      
+      // Обновляем статус платежа на "failed"
+      payment.status = 'failed';
+      payment.metadata = {
+        ...payment.metadata,
+        error: error instanceof Error ? error.message : 'Неизвестная ошибка'
+      };
+      
+      // Сохраняем обновленный платеж в базу данных
+      // await this.paymentRepository.save(payment);
+      
+      throw error;
+    }
+  }
+  
+  // Обработка успешного платежа
+  async processSuccessfulPayment(options: ProcessPaymentOptions): Promise<Payment> {
+    try {
+      const { paymentId, gatewayReference } = options;
+      
+      // Получаем платеж из базы данных
+      // const payment = await this.paymentRepository.findById(paymentId);
+      const payment = {} as Payment; // Заглушка, заменить на реальный код
+      
+      if (!payment) {
+        throw new Error(`Платеж с ID ${paymentId} не найден`);
+      }
+      
+      // Проверяем статус платежа
+      if (payment.status === 'completed') {
+        return payment; // Платеж уже обработан
+      }
+      
+      // Обновляем данные платежа
+      payment.status = 'completed';
+      payment.paymentDate = new Date();
+      
+      // Сохраняем обновленный платеж в базу данных
+      // await this.paymentRepository.save(payment);
+      
+      // Обновляем статус бронирования
+      // await this.bookingService.confirmBooking(payment.bookingId);
+      
+      return payment;
+    } catch (error) {
+      logger.error('Ошибка при обработке успешного платежа:', error instanceof Error ? error.message : 'Неизвестная ошибка');
+      throw error;
+    }
+  }
+  
+  // Обработка неуспешного платежа
+  async processFailedPayment(paymentId: string): Promise<Payment> {
+    try {
+      // Получаем платеж из базы данных
+      // const payment = await this.paymentRepository.findById(paymentId);
+      const payment = {} as Payment; // Заглушка, заменить на реальный код
+      
+      if (!payment) {
+        throw new Error(`Платеж с ID ${paymentId} не найден`);
+      }
+      
+      // Обновляем данные платежа
+      payment.status = 'failed';
+      
+      // Сохраняем обновленный платеж в базу данных
+      // await this.paymentRepository.save(payment);
+      
+      return payment;
+    } catch (error) {
+      logger.error('Ошибка при обработке неуспешного платежа:', error instanceof Error ? error.message : 'Неизвестная ошибка');
+      throw error;
+    }
+  }
+  
+  // Возврат платежа
+  async refundPayment(options: RefundOptions): Promise<Payment> {
+    try {
+      const { paymentId, amount, reason } = options;
+      
+      // Получаем платеж из базы данных
+      // const payment = await this.paymentRepository.findById(paymentId);
+      const payment = {} as Payment; // Заглушка, заменить на реальный код
+      
+      if (!payment) {
+        throw new Error(`Платеж с ID ${paymentId} не найден`);
+      }
+      
+      // Проверяем статус платежа
+      if (payment.status !== 'completed') {
+        throw new Error(`Невозможно вернуть платеж с статусом ${payment.status}`);
+      }
+      
+      // В зависимости от платежного метода, интегрируемся с соответствующим платежным шлюзом
+      switch (payment.paymentMethod) {
+        case 'yookassa':
+          await this.refundYookassaPayment(payment, amount, reason);
+          break;
+        case 'stripe':
+          await this.refundStripePayment(payment, amount, reason);
+          break;
+        default:
+          throw new Error(`Неподдерживаемый метод оплаты для возврата: ${payment.paymentMethod}`);
+      }
+      
+      // Обновляем данные платежа
+      payment.status = 'refunded';
+      payment.refundDate = new Date();
+      
+      // Сохраняем обновленный платеж в базу данных
+      // await this.paymentRepository.save(payment);
+      
+      return payment;
+    } catch (error) {
+      logger.error('Ошибка при возврате платежа:', error instanceof Error ? error.message : 'Неизвестная ошибка');
+      throw error;
+    }
+  }
+  
+  // Возврат платежа через YooKassa
+  private async refundYookassaPayment(payment: Payment, amount?: number, reason?: string): Promise<void> {
+    try {
+      // Формируем данные для запроса к YooKassa API
+      const yookassaPayload = {
+        amount: {
+          value: amount ? amount.toFixed(2) : payment.amount.toFixed(2),
+          currency: payment.currency
+        },
+        payment_id: payment.gatewayReference,
+        description: reason || `Возврат платежа за бронирование #${payment.bookingId}`
+      };
+      
+      // Отправляем запрос к YooKassa API
+      await axios.post(
+        'https://api.yookassa.ru/v3/refunds',
+        yookassaPayload,
+        {
+          headers: {
+            'Content-Type': 'application/json',
+            'Idempotence-Key': uuidv4(),
+            'Authorization': `Basic ${Buffer.from(config.payment.yookassa.shopId + ':' + config.payment.yookassa.secretKey).toString('base64')}`
+          }
+        }
+      );
+    } catch (error) {
+      logger.error('Ошибка при возврате платежа через YooKassa:', error instanceof Error ? error.message : 'Неизвестная ошибка');
+      throw error;
+    }
+  }
+  
+  // Возврат платежа через Stripe
+  private async refundStripePayment(payment: Payment, amount?: number, reason?: string): Promise<void> {
+    try {
+      // Формируем данные для запроса к Stripe API
+      const stripePayload = {
+        payment_intent: payment.gatewayReference,
+        amount: amount ? Math.round(amount * 100) : undefined, // Stripe работает с копейками
+        reason: 'requested_by_customer'
+      };
+      
+      // Отправляем запрос к Stripe API
+      await axios.post(
+        'https://api.stripe.com/v1/refunds',
+        stripePayload,
+        {
+          headers: {
+            'Content-Type': 'application/x-www-form-urlencoded',
+            'Authorization': `Bearer ${config.payment.stripe.secretKey}`
+          }
+        }
+      );
+    } catch (error) {
+      logger.error('Ошибка при возврате платежа через Stripe:', error instanceof Error ? error.message : 'Неизвестная ошибка');
+      throw error;
+    }
+  }
+  
+  // Получение платежа по ID
+  async getPaymentById(paymentId: string): Promise<Payment | null> {
+    try {
+      // Получаем платеж из базы данных
+      // const payment = await this.paymentRepository.findById(paymentId);
+      const payment = null; // Заглушка, заменить на реальный код
+      
+      return payment;
+    } catch (error) {
+      logger.error('Ошибка при получении платежа по ID:', error instanceof Error ? error.message : 'Неизвестная ошибка');
+      throw error;
+    }
+  }
+  
+  // Получение платежей по ID бронирования
+  async getPaymentsByBookingId(bookingId: string): Promise<Payment[]> {
+    try {
+      // Получаем платежи по ID бронирования
+      // return await this.paymentRepository.findByBookingId(bookingId);
+      const payments: Payment[] = []; // Заглушка, заменить на реальный код
+      return payments;
+    } catch (error) {
+      logger.error('Ошибка при получении платежей по ID бронирования:', error instanceof Error ? error.message : 'Неизвестная ошибка');
+      throw error;
+    }
+  }
+  
+  // Получение платежей по ID пользователя
+  async getPaymentsByUserId(userId: string): Promise<Payment[]> {
+    try {
+      // Получаем платежи по ID пользователя
+      // return await this.paymentRepository.findByUserId(userId);
+      const payments: Payment[] = []; // Заглушка, заменить на реальный код
+      return payments;
+    } catch (error) {
+      logger.error('Ошибка при получении платежей по ID пользователя:', error instanceof Error ? error.message : 'Неизвестная ошибка');
+      throw error;
     }
   }
 }
 
-// Экспортируем экземпляр сервиса
-const paymentService = new PaymentService();
-export default paymentService; 
+export default new PaymentService(); 

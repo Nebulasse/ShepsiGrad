@@ -115,7 +115,7 @@ export class ImageService {
                 .storage
                 .from(this.BUCKET_NAME)
                 .list('', {
-                    prefix: fileId
+                    search: fileId
                 });
 
             if (error) throw error;

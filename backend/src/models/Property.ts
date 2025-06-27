@@ -27,6 +27,10 @@ export interface PropertyImage {
     created_at: Date;
 }
 
+// Кэш для часто запрашиваемых свойств
+const propertyCache = new Map<string, {data: any, timestamp: number}>();
+const CACHE_TTL = 5 * 60 * 1000; // 5 минут
+
 export class PropertyModel {
     static async create(propertyData: Omit<Property, 'id' | 'created_at' | 'updated_at'>, images?: string[]): Promise<Property> {
         const { data: property, error: propertyError } = await supabase
@@ -55,16 +59,34 @@ export class PropertyModel {
     }
 
     static async findById(id: string): Promise<Property & { images: PropertyImage[] } | null> {
+        // Проверяем кэш
+        const cached = propertyCache.get(id);
+        if (cached && (Date.now() - cached.timestamp) < CACHE_TTL) {
+            return cached.data;
+        }
+
+        // Оптимизированный запрос с получением всех необходимых данных за один запрос
         const { data, error } = await supabase
             .from('properties')
             .select(`
                 *,
-                property_images (*)
+                property_images (*),
+                users!properties_owner_id_fkey (id, name, email, avatar_url),
+                reviews!reviews_property_id_fkey (id, rating, comment, user_id, created_at)
             `)
             .eq('id', id)
             .single();
 
         if (error) throw error;
+        
+        // Сохраняем в кэш
+        if (data) {
+            propertyCache.set(id, {
+                data,
+                timestamp: Date.now()
+            });
+        }
+        
         return data;
     }
 
@@ -87,9 +109,20 @@ export class PropertyModel {
             amenities?: string[];
         };
     }): Promise<{ data: Property[]; error: any; count: number }> {
+        // Создаем ключ кэша на основе параметров запроса
+        const cacheKey = `properties_${start}_${end}_${JSON.stringify(filters)}`;
+        const cached = propertyCache.get(cacheKey);
+        
+        if (cached && (Date.now() - cached.timestamp) < CACHE_TTL) {
+            return cached.data;
+        }
+        
         let query = supabase
             .from('properties')
-            .select('*', { count: 'exact' })
+            .select(`
+                *,
+                property_images (*)
+            `, { count: 'exact' })
             .eq('status', 'active');
 
         if (filters.city) {
@@ -127,11 +160,19 @@ export class PropertyModel {
         const { data, error, count } = await query
             .order('created_at', { ascending: false });
 
-        return {
+        const result = {
             data: data || [],
             error,
             count: count || 0
         };
+        
+        // Сохраняем результат в кэш
+        propertyCache.set(cacheKey, {
+            data: result,
+            timestamp: Date.now()
+        });
+
+        return result;
     }
 
     static async update(id: string, propertyData: Partial<Property>): Promise<Property> {
@@ -143,6 +184,16 @@ export class PropertyModel {
             .single();
 
         if (error) throw error;
+        
+        // Инвалидируем кэш при обновлении
+        propertyCache.delete(id);
+        // Очищаем кэш списков, так как они могут содержать это свойство
+        for (const key of propertyCache.keys()) {
+            if (key.startsWith('properties_')) {
+                propertyCache.delete(key);
+            }
+        }
+        
         return data;
     }
 
@@ -153,6 +204,15 @@ export class PropertyModel {
             .eq('id', id);
 
         if (error) throw error;
+        
+        // Инвалидируем кэш при удалении
+        propertyCache.delete(id);
+        // Очищаем кэш списков, так как они могут содержать это свойство
+        for (const key of propertyCache.keys()) {
+            if (key.startsWith('properties_')) {
+                propertyCache.delete(key);
+            }
+        }
     }
 
     static async addPropertyImages(propertyId: string, imageUrls: string[]): Promise<PropertyImage[]> {

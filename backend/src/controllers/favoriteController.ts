@@ -1,140 +1,128 @@
 import { Request, Response } from 'express';
 import Favorite from '../models/Favorite';
-import { ApiError } from '../utils/ApiError';
-import { LoggerService } from '../services/loggerService';
+import ApiError from '../utils/ApiError';
+import { getModuleLogger } from '../utils/logger';
+import { AuthenticatedRequest } from '../middleware/auth.middleware';
 
-// Добавить объект в избранное
-export const addToFavorites = async (req: Request, res: Response) => {
+const logger = getModuleLogger('FavoriteController');
+
+// Контроллер для работы с избранными объектами
+const favoriteController = {
+  // Добавить объект в избранное
+  addToFavorites: async (req: AuthenticatedRequest, res: Response) => {
     try {
-        const { propertyId } = req.body;
-        const userId = req.user?._id;
+      const { propertyId } = req.body;
+      const userId = req.user.user_id;
 
-        if (!userId) {
-            throw new ApiError('Пользователь не авторизован', 401);
-        }
+      // Проверяем, есть ли уже такой объект в избранном
+      const existingFavorite = await Favorite.findOne({ 
+        where: { userId, propertyId } 
+      });
 
-        const newFavorite = await Favorite.create({
-            user: userId,
-            property: propertyId,
+      if (existingFavorite) {
+        return res.status(409).json({
+          status: 'error',
+          message: 'Объект уже добавлен в избранное'
         });
+      }
 
-        await newFavorite.populate('property');
+      // Создаем запись в избранном
+      const favorite = await Favorite.create({
+        userId,
+        propertyId
+      });
 
-        res.status(201).json({
-            success: true,
-            data: newFavorite,
-        });
-    } catch (error: any) {
-        // Если ошибка дублирования (объект уже в избранном)
-        if (error.code === 11000) {
-            return res.status(400).json({
-                success: false,
-                error: 'Объект уже добавлен в избранное',
-            });
-        }
-
-        res.status(error.statusCode || 500).json({
-            success: false,
-            error: error.message || 'Ошибка сервера',
-        });
+      return res.status(201).json({
+        status: 'success',
+        message: 'Объект добавлен в избранное',
+        data: { favorite }
+      });
+    } catch (error) {
+      logger.error(`Ошибка при добавлении в избранное: ${error instanceof Error ? error.message : 'Неизвестная ошибка'}`);
+      return res.status(500).json({
+        status: 'error',
+        message: 'Ошибка при добавлении объекта в избранное'
+      });
     }
+  },
+
+  // Удалить объект из избранного
+  removeFromFavorites: async (req: AuthenticatedRequest, res: Response) => {
+    try {
+      const { propertyId } = req.params;
+      const userId = req.user.user_id;
+
+      const favorite = await Favorite.findOne({ 
+        where: { userId, propertyId } 
+      });
+
+      if (!favorite) {
+        return res.status(404).json({
+          status: 'error',
+          message: 'Объект не найден в избранном'
+        });
+      }
+
+      await favorite.destroy();
+
+      return res.status(200).json({
+        status: 'success',
+        message: 'Объект удален из избранного'
+      });
+    } catch (error) {
+      logger.error(`Ошибка при удалении из избранного: ${error instanceof Error ? error.message : 'Неизвестная ошибка'}`);
+      return res.status(500).json({
+        status: 'error',
+        message: 'Ошибка при удалении объекта из избранного'
+      });
+    }
+  },
+
+  // Получить список избранных объектов пользователя
+  getUserFavorites: async (req: AuthenticatedRequest, res: Response) => {
+    try {
+      const userId = req.user.user_id;
+
+      const favorites = await Favorite.findAll({
+        where: { userId },
+        include: ['property'] // Включаем связанные данные о недвижимости
+      });
+
+      return res.status(200).json({
+        status: 'success',
+        data: { favorites }
+      });
+    } catch (error) {
+      logger.error(`Ошибка при получении избранного: ${error instanceof Error ? error.message : 'Неизвестная ошибка'}`);
+      return res.status(500).json({
+        status: 'error',
+        message: 'Ошибка при получении списка избранного'
+      });
+    }
+  },
+
+  // Проверить, находится ли объект в избранном
+  checkIsFavorite: async (req: AuthenticatedRequest, res: Response) => {
+    try {
+      const { propertyId } = req.params;
+      const userId = req.user.user_id;
+
+      const favorite = await Favorite.findOne({
+        where: { userId, propertyId }
+      });
+
+      return res.status(200).json({
+        status: 'success',
+        data: { isFavorite: !!favorite }
+      });
+    } catch (error) {
+      logger.error(`Ошибка при проверке избранного: ${error instanceof Error ? error.message : 'Неизвестная ошибка'}`);
+      return res.status(500).json({
+        status: 'error',
+        message: 'Ошибка при проверке избранного'
+      });
+    }
+  }
 };
 
-// Удалить объект из избранного
-export const removeFromFavorites = async (req: Request, res: Response) => {
-    try {
-        const { propertyId } = req.params;
-        const userId = req.user?._id;
-
-        if (!userId) {
-            throw new ApiError('Пользователь не авторизован', 401);
-        }
-
-        const result = await Favorite.findOneAndDelete({
-            user: userId,
-            property: propertyId,
-        });
-
-        if (!result) {
-            return res.status(404).json({
-                success: false,
-                error: 'Объект не найден в избранном',
-            });
-        }
-
-        res.status(200).json({
-            success: true,
-            message: 'Объект удален из избранного',
-        });
-    } catch (error: any) {
-        res.status(error.statusCode || 500).json({
-            success: false,
-            error: error.message || 'Ошибка сервера',
-        });
-    }
-};
-
-// Получить список избранных объектов пользователя
-export const getUserFavorites = async (req: Request, res: Response) => {
-    try {
-        const userId = req.user?._id;
-        if (!userId) {
-            throw new ApiError('Пользователь не авторизован', 401);
-        }
-
-        const page = parseInt(req.query.page as string) || 1;
-        const limit = parseInt(req.query.limit as string) || 10;
-        const skip = (page - 1) * limit;
-
-        const favorites = await Favorite.find({ user: userId })
-            .populate('property')
-            .sort({ createdAt: -1 })
-            .skip(skip)
-            .limit(limit);
-
-        const total = await Favorite.countDocuments({ user: userId });
-
-        res.status(200).json({
-            success: true,
-            data: favorites,
-            pagination: {
-                total,
-                page,
-                limit,
-                pages: Math.ceil(total / limit),
-            },
-        });
-    } catch (error: any) {
-        res.status(error.statusCode || 500).json({
-            success: false,
-            error: error.message || 'Ошибка сервера',
-        });
-    }
-};
-
-// Проверить, добавлен ли объект в избранное
-export const checkIsFavorite = async (req: Request, res: Response) => {
-    try {
-        const { propertyId } = req.params;
-        const userId = req.user?._id;
-
-        if (!userId) {
-            throw new ApiError('Пользователь не авторизован', 401);
-        }
-
-        const favorite = await Favorite.findOne({
-            user: userId,
-            property: propertyId,
-        });
-
-        res.status(200).json({
-            success: true,
-            isFavorite: !!favorite,
-        });
-    } catch (error: any) {
-        res.status(error.statusCode || 500).json({
-            success: false,
-            error: error.message || 'Ошибка сервера',
-        });
-    }
-}; 
+export default favoriteController; 

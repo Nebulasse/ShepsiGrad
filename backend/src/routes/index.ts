@@ -47,6 +47,15 @@ router.use('/admin', adminRoutes);
 // Маршруты отзывов
 router.use('/reviews', reviewRoutes);
 
+// Маршрут для проверки работоспособности
+router.get('/health', (req, res) => {
+  res.status(200).json({
+    status: 'ok',
+    timestamp: new Date().toISOString(),
+    message: 'API работает нормально'
+  });
+});
+
 // Другие маршруты будут добавлены по мере разработки
 // router.use('/properties', propertyRoutes);
 // router.use('/bookings', bookingRoutes);

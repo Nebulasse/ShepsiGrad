@@ -152,13 +152,13 @@ class ApiService {
   // Настройка мостов между событиями синхронизации и WebSocket
   private setupSyncEventBridges(io: any): void {
     // Мост для сообщений чата
-    syncService.subscribe(SyncChannel.CHAT_MESSAGE, (event) => {
+    syncService.subscribe(SyncChannel.CHAT_MESSAGE, (event: { payload: { chatId: string; message: any } }) => {
       const { chatId, message } = event.payload;
       io.to(`chat:${chatId}`).emit('new-message', message);
     });
 
     // Мост для обновлений объектов недвижимости
-    syncService.subscribe(SyncChannel.PROPERTY_UPDATE, (event) => {
+    syncService.subscribe(SyncChannel.PROPERTY_UPDATE, (event: { payload: { documentId: string; document: any; operationType: string } }) => {
       const { documentId, document, operationType } = event.payload;
       io.to(`property:${documentId}`).emit('property-update', {
         propertyId: documentId,
@@ -168,7 +168,7 @@ class ApiService {
     });
 
     // Мост для уведомлений
-    syncService.subscribe(SyncChannel.NOTIFICATION, (event) => {
+    syncService.subscribe(SyncChannel.NOTIFICATION, (event: { payload: { userId?: string; [key: string]: any } }) => {
       const notification = event.payload;
       if (notification.userId) {
         io.to(`notifications:${notification.userId}`).emit('new-notification', notification);
@@ -176,7 +176,7 @@ class ApiService {
     });
 
     // Мост для бронирований
-    syncService.subscribe(SyncChannel.BOOKING_UPDATE, (event) => {
+    syncService.subscribe(SyncChannel.BOOKING_UPDATE, (event: { payload: { documentId: string; document?: { propertyId?: string; ownerId?: string; userId?: string }; operationType: string } }) => {
       const { documentId, document, operationType } = event.payload;
       
       // Уведомляем всех клиентов, подписанных на объект недвижимости

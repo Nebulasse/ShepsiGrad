@@ -5,14 +5,37 @@ export interface User {
     id: string;
     email: string;
     password?: string;
-  firstName: string;
-  lastName: string;
+    firstName: string;
+    lastName: string;
     role: 'user' | 'landlord' | 'admin';
-  createdAt?: Date;
-  updatedAt?: Date;
+    createdAt?: Date;
+    updatedAt?: Date;
+    emailVerified?: boolean;
+    emailVerificationToken?: string;
+    passwordResetToken?: string;
+    passwordResetExpires?: Date;
+    status?: string;
 }
 
-export class UserModel {
+export class User {
+    id: string;
+    email: string;
+    password?: string;
+    firstName: string;
+    lastName: string;
+    role: 'user' | 'landlord' | 'admin';
+    createdAt?: Date;
+    updatedAt?: Date;
+    emailVerified?: boolean;
+    emailVerificationToken?: string;
+    passwordResetToken?: string;
+    passwordResetExpires?: Date;
+    status?: string;
+    
+    constructor(data: Partial<User>) {
+        Object.assign(this, data);
+    }
+    
     static async findById(id: string): Promise<User | null> {
         const { data, error } = await supabase
             .from('users')
@@ -21,7 +44,7 @@ export class UserModel {
             .single();
         
         if (error) throw error;
-        return data;
+        return data ? new User(data) : null;
     }
     
     static async findByEmail(email: string): Promise<User | null> {
@@ -32,13 +55,30 @@ export class UserModel {
             .single();
         
         if (error && error.code !== 'PGRST116') throw error;
-        return data || null;
+        return data ? new User(data) : null;
+    }
+    
+    static async findOne(query: Record<string, any>): Promise<User | null> {
+        const { data, error } = await supabase
+            .from('users')
+            .select('*');
+        
+        // Фильтруем результаты вручную, так как Supabase не поддерживает сложные запросы
+        if (error) throw error;
+        
+        if (!data || data.length === 0) return null;
+        
+        const filtered = data.filter(item => {
+            return Object.keys(query).every(key => item[key] === query[key]);
+        });
+        
+        return filtered.length > 0 ? new User(filtered[0]) : null;
     }
     
     static async create(userData: Partial<User>): Promise<User> {
-    if (userData.password) {
-      const salt = await bcrypt.genSalt(10);
-      userData.password = await bcrypt.hash(userData.password, salt);
+        if (userData.password) {
+            const salt = await bcrypt.genSalt(10);
+            userData.password = await bcrypt.hash(userData.password, salt);
         }
         
         const { data, error } = await supabase
@@ -48,14 +88,14 @@ export class UserModel {
             .single();
         
         if (error) throw error;
-        return data;
+        return new User(data);
     }
     
     static async update(id: string, userData: Partial<User>): Promise<User> {
-    if (userData.password) {
-      const salt = await bcrypt.genSalt(10);
-      userData.password = await bcrypt.hash(userData.password, salt);
-    }
+        if (userData.password) {
+            const salt = await bcrypt.genSalt(10);
+            userData.password = await bcrypt.hash(userData.password, salt);
+        }
     
         const { data, error } = await supabase
             .from('users')
@@ -65,7 +105,7 @@ export class UserModel {
             .single();
         
         if (error) throw error;
-        return data;
+        return new User(data);
     }
     
     static async delete(id: string): Promise<void> {
@@ -77,7 +117,22 @@ export class UserModel {
         if (error) throw error;
     }
     
-  static async comparePassword(password: string, hashedPassword: string): Promise<boolean> {
-    return bcrypt.compare(password, hashedPassword);
+    static async comparePassword(password: string, hashedPassword: string): Promise<boolean> {
+        return bcrypt.compare(password, hashedPassword);
+    }
+    
+    // Метод для преобразования объекта пользователя в публичный формат
+    toPublic(): Partial<User> {
+        return {
+            id: this.id,
+            email: this.email,
+            firstName: this.firstName,
+            lastName: this.lastName,
+            role: this.role,
+            createdAt: this.createdAt,
+            updatedAt: this.updatedAt,
+            emailVerified: this.emailVerified,
+            status: this.status
+        };
     }
 } 

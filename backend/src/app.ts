@@ -6,10 +6,7 @@ import morgan from 'morgan';
 import { env } from './config/env';
 import apiRoutes from './routes';
 import { getModuleLogger } from './utils/logger';
-import { initDatabase } from './database/connection';
 import { createServer } from 'http';
-import { SocketService } from './services/socketService';
-import authRoutes from './routes/auth';
 
 const logger = getModuleLogger('App');
 
@@ -29,12 +26,19 @@ if (env.app.isDev) {
   app.use(morgan('dev'));
 }
 
-// Инициализация WebSocket
-const socketService = new SocketService(httpServer);
+// Эндпоинт для проверки работоспособности
+app.get('/api/v1/health', (req: Request, res: Response) => {
+  res.status(200).json({
+    status: 'ok',
+    timestamp: new Date().toISOString(),
+    environment: env.app.environment,
+    version: process.env.npm_package_version || '1.0.0',
+    uptime: process.uptime()
+  });
+});
 
 // API маршруты
 app.use(env.app.apiPrefix, apiRoutes);
-app.use('/api/auth', authRoutes);
 
 // Обработка 404
 app.use((req: Request, res: Response) => {
@@ -57,15 +61,16 @@ app.use((err: Error, req: Request, res: Response, next: NextFunction) => {
 // Запуск сервера
 const startServer = async (): Promise<void> => {
   try {
-    // Инициализация базы данных
-    await initDatabase();
-
     // Запуск сервера
     httpServer.listen(env.app.port, () => {
       logger.info(`Сервер запущен на порту ${env.app.port} в режиме ${env.app.environment}`);
     });
   } catch (error) {
-    logger.error(`Не удалось запустить сервер: ${error.message}`);
+    if (error instanceof Error) {
+      logger.error(`Не удалось запустить сервер: ${error.message}`);
+    } else {
+      logger.error('Неизвестная ошибка при запуске сервера');
+    }
     process.exit(1);
   }
 };
@@ -92,6 +97,6 @@ process.on('SIGINT', () => {
   process.exit(0);
 });
 
-// Экспорт приложения, функции запуска и socketService
-export { app, startServer, socketService };
+// Экспорт приложения и функции запуска
+export { app, startServer };
 export default httpServer; 

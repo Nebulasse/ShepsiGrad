@@ -1,109 +1,127 @@
+import bcryptjs from 'bcryptjs';
 import jwt from 'jsonwebtoken';
-import crypto from 'crypto';
+import { v4 as uuidv4 } from 'uuid';
 import { env } from '../config/env';
-import User, { UserCreationAttributes, UserStatus } from '../models/user.model';
 import { getModuleLogger } from '../utils/logger';
+import { User } from '../models/User';
 
 const logger = getModuleLogger('AuthService');
 
-// Интерфейс для данных токена
+// Интерфейс для токена
 export interface TokenPayload {
-  userId: number;
+  userId: string;
   email: string;
   role: string;
 }
 
 // Интерфейс для результата аутентификации
 export interface AuthResult {
-  accessToken: string;
-  refreshToken: string;
-  user: any;
+  user: {
+    id: string;
+    email: string;
+    firstName: string;
+    lastName: string;
+    role: string;
+  };
+  tokens: {
+    accessToken: string;
+    refreshToken: string;
+  };
 }
 
-// Сервис для работы с аутентификацией
-class AuthService {
+/**
+ * Сервис для работы с аутентификацией и авторизацией
+ */
+export class AuthService {
   /**
    * Регистрация нового пользователя
    * @param userData Данные пользователя
    * @returns Результат регистрации
    */
-  async register(userData: UserCreationAttributes): Promise<User> {
+  static async register(userData: {
+    email: string;
+    password: string;
+    firstName: string;
+    lastName: string;
+    phone?: string;
+    role?: string;
+  }): Promise<User> {
     try {
-      // Проверяем, что пользователь с таким email не существует
-      const existingUser = await User.findOne({ where: { email: userData.email } });
+      // Проверяем, существует ли пользователь с таким email
+      const existingUser = await User.findByEmail(userData.email);
       if (existingUser) {
         throw new Error('Пользователь с таким email уже существует');
       }
 
-      // Генерируем токен для подтверждения email
-      const emailVerificationToken = crypto.randomBytes(32).toString('hex');
-
-      // Создаем пользователя
+      // Создаем нового пользователя
       const user = await User.create({
-        ...userData,
-        emailVerificationToken,
-        status: UserStatus.PENDING,
+        email: userData.email,
+        password: userData.password,
+        firstName: userData.firstName,
+        lastName: userData.lastName,
+        phone: userData.phone,
+        role: userData.role || 'user',
+        emailVerified: false,
+        status: 'pending',
+        emailVerificationToken: uuidv4(),
       });
-
-      logger.info(`Пользователь зарегистрирован: ${user.email}`);
 
       return user;
     } catch (error) {
-      logger.error(`Ошибка при регистрации пользователя: ${error.message}`);
+      logger.error(`Ошибка при регистрации пользователя: ${error instanceof Error ? error.message : 'Неизвестная ошибка'}`);
       throw error;
     }
   }
 
   /**
-   * Аутентификация пользователя
+   * Вход пользователя
    * @param email Email пользователя
    * @param password Пароль пользователя
-   * @returns Результат аутентификации
+   * @returns Результат входа
    */
-  async login(email: string, password: string): Promise<AuthResult> {
+  static async login(email: string, password: string): Promise<AuthResult> {
     try {
-      // Получаем пользователя по email с паролем
-      const user = await User.scope('withPassword').findOne({ where: { email } });
+      // Находим пользователя по email
+      const user = await User.findByEmail(email);
       if (!user) {
-        throw new Error('Неверные учетные данные');
+        throw new Error('Пользователь не найден');
       }
 
       // Проверяем пароль
-      const isPasswordValid = await user.validatePassword(password);
+      const isPasswordValid = await User.comparePassword(password, user.password || '');
       if (!isPasswordValid) {
-        throw new Error('Неверные учетные данные');
+        throw new Error('Неверный пароль');
       }
 
       // Проверяем статус пользователя
-      if (user.status === UserStatus.BLOCKED) {
+      if (user.status === 'blocked') {
         throw new Error('Пользователь заблокирован');
       }
 
-      if (user.status === UserStatus.DELETED) {
-        throw new Error('Пользователь удален');
-      }
-
-      if (user.status === UserStatus.PENDING && !user.emailVerified) {
-        throw new Error('Email не подтвержден');
-      }
-
-      // Обновляем время последнего входа
-      user.lastLoginAt = new Date();
-      await user.save();
-
       // Генерируем токены
-      const accessToken = this.generateAccessToken(user);
-      const refreshToken = this.generateRefreshToken(user);
+      const tokens = this.generateTokens({
+        userId: user.id,
+        email: user.email,
+        role: user.role,
+      });
 
-      logger.info(`Пользователь успешно вошел в систему: ${user.email}`);
+      // Обновляем дату последнего входа
+      await User.update(user.id, {
+        lastLoginAt: new Date(),
+      } as any);
 
       return {
-        accessToken,
-        refreshToken,
-        user: user.toPublic(),
+        user: {
+          id: user.id,
+          email: user.email,
+          firstName: user.firstName,
+          lastName: user.lastName,
+          role: user.role,
+        },
+        tokens,
       };
     } catch (error) {
-      logger.error(`Ошибка при входе пользователя: ${error.message}`);
+      logger.error(`Ошибка при входе пользователя: ${error instanceof Error ? error.message : 'Неизвестная ошибка'}`);
       throw error;
     }
   }
@@ -113,35 +131,27 @@ class AuthService {
    * @param refreshToken Токен обновления
    * @returns Новые токены
    */
-  async refreshToken(refreshToken: string): Promise<AuthResult> {
+  static async refreshToken(refreshToken: string): Promise<{ accessToken: string; refreshToken: string }> {
     try {
-      // Проверяем токен
-      const payload = jwt.verify(refreshToken, env.jwt.secret) as TokenPayload;
-
-      // Получаем пользователя
-      const user = await User.findByPk(payload.userId);
+      // Проверяем токен обновления
+      const decoded = jwt.verify(refreshToken, env.jwt.secret) as TokenPayload;
+      
+      // Находим пользователя
+      const user = await User.findById(decoded.userId);
       if (!user) {
         throw new Error('Пользователь не найден');
       }
 
-      // Проверяем статус пользователя
-      if (user.status !== UserStatus.ACTIVE) {
-        throw new Error('Пользователь не активен');
-      }
-
       // Генерируем новые токены
-      const newAccessToken = this.generateAccessToken(user);
-      const newRefreshToken = this.generateRefreshToken(user);
+      const tokens = this.generateTokens({
+        userId: user.id,
+        email: user.email,
+        role: user.role,
+      });
 
-      logger.info(`Токен обновлен для пользователя: ${user.email}`);
-
-      return {
-        accessToken: newAccessToken,
-        refreshToken: newRefreshToken,
-        user: user.toPublic(),
-      };
+      return tokens;
     } catch (error) {
-      logger.error(`Ошибка при обновлении токена: ${error.message}`);
+      logger.error(`Ошибка при обновлении токена: ${error instanceof Error ? error.message : 'Неизвестная ошибка'}`);
       throw error;
     }
   }
@@ -149,27 +159,29 @@ class AuthService {
   /**
    * Подтверждение email пользователя
    * @param token Токен подтверждения
-   * @returns Пользователь
+   * @returns Пользователь после подтверждения
    */
-  async verifyEmail(token: string): Promise<User> {
+  static async verifyEmail(token: string): Promise<User> {
     try {
       // Находим пользователя по токену подтверждения
-      const user = await User.findOne({ where: { emailVerificationToken: token } });
+      const user = await User.findOne({ emailVerificationToken: token });
       if (!user) {
-        throw new Error('Неверный токен подтверждения');
+        throw new Error('Недействительный токен подтверждения');
       }
 
-      // Обновляем статус пользователя
-      user.emailVerified = true;
-      user.status = UserStatus.ACTIVE;
-      user.emailVerificationToken = null;
-      await user.save();
-
-      logger.info(`Email подтвержден для пользователя: ${user.email}`);
-
-      return user;
+      // Обновляем пользователя
+      const updatedUser = {
+        ...user,
+        emailVerificationToken: undefined,
+        emailVerified: true,
+        status: 'active',
+      };
+      
+      await User.update(user.id, updatedUser);
+      
+      return updatedUser;
     } catch (error) {
-      logger.error(`Ошибка при подтверждении email: ${error.message}`);
+      logger.error(`Ошибка при подтверждении email: ${error instanceof Error ? error.message : 'Неизвестная ошибка'}`);
       throw error;
     }
   }
@@ -177,99 +189,92 @@ class AuthService {
   /**
    * Запрос на сброс пароля
    * @param email Email пользователя
-   * @returns Токен сброса пароля
+   * @returns true если запрос отправлен успешно
    */
-  async requestPasswordReset(email: string): Promise<string> {
+  static async requestPasswordReset(email: string): Promise<boolean> {
     try {
       // Находим пользователя по email
-      const user = await User.findOne({ where: { email } });
+      const user = await User.findByEmail(email);
       if (!user) {
-        throw new Error('Пользователь с таким email не найден');
+        // Не сообщаем о несуществующем пользователе в целях безопасности
+        return true;
       }
 
       // Генерируем токен сброса пароля
-      const resetToken = crypto.randomBytes(32).toString('hex');
-      user.passwordResetToken = resetToken;
-      user.passwordResetExpires = new Date(Date.now() + 3600000); // 1 час
-      await user.save();
+      const resetToken = uuidv4();
+      const resetExpires = new Date(Date.now() + 3600000); // 1 час
 
-      logger.info(`Запрошен сброс пароля для пользователя: ${user.email}`);
+      // Обновляем пользователя
+      await User.update(user.id, {
+        passwordResetToken: resetToken,
+        passwordResetExpires: resetExpires,
+      });
 
-      return resetToken;
+      // В реальном приложении здесь отправка email с токеном
+
+      return true;
     } catch (error) {
-      logger.error(`Ошибка при запросе сброса пароля: ${error.message}`);
+      logger.error(`Ошибка при запросе сброса пароля: ${error instanceof Error ? error.message : 'Неизвестная ошибка'}`);
       throw error;
     }
   }
 
   /**
    * Сброс пароля
-   * @param token Токен сброса пароля
+   * @param token Токен сброса
    * @param newPassword Новый пароль
-   * @returns Пользователь
+   * @returns Пользователь после сброса пароля
    */
-  async resetPassword(token: string, newPassword: string): Promise<User> {
+  static async resetPassword(token: string, newPassword: string): Promise<User> {
     try {
-      // Находим пользователя по токену сброса пароля
-      const user = await User.findOne({
-        where: {
-          passwordResetToken: token,
-          passwordResetExpires: { $gt: new Date() }, // Проверяем, что токен не истек
-        },
-      });
-
+      // Находим пользователя по токену сброса
+      const user = await User.findOne({ passwordResetToken: token });
       if (!user) {
-        throw new Error('Неверный или истекший токен сброса пароля');
+        throw new Error('Недействительный токен сброса');
       }
 
-      // Обновляем пароль
-      user.password = newPassword;
-      user.passwordResetToken = null;
-      user.passwordResetExpires = null;
-      await user.save();
+      // Проверяем срок действия токена
+      if (user.passwordResetExpires && user.passwordResetExpires < new Date()) {
+        throw new Error('Истек срок действия токена сброса');
+      }
 
-      logger.info(`Пароль сброшен для пользователя: ${user.email}`);
-
-      return user;
+      // Обновляем пароль пользователя
+      const updatedUser = {
+        ...user,
+        password: newPassword,
+        passwordResetToken: undefined,
+        passwordResetExpires: undefined,
+      };
+      
+      await User.update(user.id, updatedUser);
+      
+      return updatedUser;
     } catch (error) {
-      logger.error(`Ошибка при сбросе пароля: ${error.message}`);
+      logger.error(`Ошибка при сбросе пароля: ${error instanceof Error ? error.message : 'Неизвестная ошибка'}`);
       throw error;
     }
   }
 
   /**
-   * Генерация токена доступа
-   * @param user Пользователь
-   * @returns Токен доступа
+   * Генерация токенов доступа и обновления
+   * @param payload Полезная нагрузка для токенов
+   * @returns Токены доступа и обновления
    */
-  private generateAccessToken(user: User): string {
-    const payload: TokenPayload = {
-      userId: user.id,
-      email: user.email,
-      role: user.role,
-    };
-
-    return jwt.sign(payload, env.jwt.secret, {
-      expiresIn: env.jwt.accessExpiresIn,
-    });
-  }
-
-  /**
-   * Генерация токена обновления
-   * @param user Пользователь
-   * @returns Токен обновления
-   */
-  private generateRefreshToken(user: User): string {
-    const payload: TokenPayload = {
-      userId: user.id,
-      email: user.email,
-      role: user.role,
-    };
-
-    return jwt.sign(payload, env.jwt.secret, {
-      expiresIn: env.jwt.refreshExpiresIn,
-    });
+  private static generateTokens(payload: TokenPayload): { accessToken: string; refreshToken: string } {
+    const accessToken = jwt.sign(
+      payload, 
+      env.jwt.secret, 
+      { expiresIn: env.jwt.accessExpiresIn }
+    );
+    
+    const refreshToken = jwt.sign(
+      payload, 
+      env.jwt.secret, 
+      { expiresIn: env.jwt.refreshExpiresIn }
+    );
+    
+    return { accessToken, refreshToken };
   }
 }
 
-export const authService = new AuthService(); 
+export const authService = AuthService; 

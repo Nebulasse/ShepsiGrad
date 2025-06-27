@@ -25,4 +25,7 @@ router.post('/booking/:bookingId', chatController.createBookingChat);
 router.get('/:chatId/messages', validateQuery(querySchema), chatController.getChatMessages);
 router.post('/:chatId/messages', chatController.sendMessage);
 
+// Тестовый маршрут для проверки чата между приложениями
+router.post('/test/connection', chatController.testChatConnection);
+
 export default router; 

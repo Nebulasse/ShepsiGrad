@@ -143,4 +143,9 @@ export const appConfig: AppConfig = {
   },
 };
 
+// Экспорт отдельных переменных для удобства использования
+export const JWT_SECRET = appConfig.auth.jwtSecret;
+export const JWT_EXPIRES_IN = appConfig.auth.jwtExpiresIn;
+export const config = appConfig;
+
 export default appConfig;

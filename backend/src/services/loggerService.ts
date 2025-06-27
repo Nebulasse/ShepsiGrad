@@ -57,6 +57,9 @@ const logger = winston.createLogger({
     transports,
 });
 
+// Экспортируем логгер
+export { logger };
+
 // Создаем класс для работы с логгером
 export class LoggerService {
     static error(message: string, meta?: any) {

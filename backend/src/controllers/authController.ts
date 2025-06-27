@@ -5,7 +5,7 @@ import { AuthRequest } from '../middleware/auth';
 import { UserModel } from '../models/User';
 import { ValidationError } from '../utils/validation';
 import { LoggerService } from '../services/loggerService';
-import bcrypt from 'bcrypt';
+import bcryptjs from 'bcryptjs';
 import { JWT_SECRET as jwtSecret, JWT_EXPIRES_IN } from '../config/appConfig';
 import { User } from '../models/User';
 import { generateToken } from '../middleware/auth';
@@ -26,7 +26,8 @@ export const authController = {
                 return res.status(400).json({ error: 'Пользователь с таким email уже существует' });
             }
 
-            const hashedPassword = await bcrypt.hash(password, 10);
+            const salt = await bcryptjs.genSalt(10);
+            const hashedPassword = await bcryptjs.hash(password, salt);
 
             const user = await UserModel.create({
                 email,
@@ -93,7 +94,7 @@ export const authController = {
                 }
             }
 
-            const isMatch = await bcrypt.compare(password, user.password);
+            const isMatch = await bcryptjs.compare(password, user.password);
             if (!isMatch) {
                 LoggerService.warn('Failed login attempt', { email });
                 return res.status(401).json({ error: 'Неверный email или пароль' });

@@ -21,6 +21,23 @@ export interface SyncEvent<T = any> {
   targetApps?: string[];
 }
 
+// Типы для различных событий синхронизации
+export interface DocumentSyncPayload {
+  documentId: string;
+  document: any;
+  operationType: string;
+}
+
+export interface ChatMessagePayload {
+  chatId: string;
+  message: any;
+}
+
+export interface NotificationPayload {
+  userId?: string;
+  [key: string]: any;
+}
+
 class SyncService {
   private pubsub: PubSub;
   private applicationId: string;
@@ -49,30 +66,34 @@ class SyncService {
 
   // Подписка на события синхронизации
   subscribe<T>(channel: SyncChannel, callback: (event: SyncEvent<T>) => void): () => void {
-    const asyncIterator = this.pubsub.asyncIterator([channel]);
+    const asyncIterator = this.pubsub.asyncIterator<{ [key: string]: SyncEvent<T> }>([channel]);
     
     // Обработка событий из итератора
     const handleEvents = async () => {
-      for await (const event of asyncIterator) {
-        const syncEvent = event[channel] as SyncEvent<T>;
-        
-        // Пропускаем события от текущего приложения
-        if (syncEvent.source === this.applicationId) {
-          continue;
+      try {
+        for await (const event of asyncIterator) {
+          const syncEvent = event[channel] as SyncEvent<T>;
+          
+          // Пропускаем события от текущего приложения
+          if (syncEvent.source === this.applicationId) {
+            continue;
+          }
+          
+          // Проверяем, предназначено ли событие для этого приложения
+          if (syncEvent.targetApps && !syncEvent.targetApps.includes(this.applicationId)) {
+            continue;
+          }
+          
+          callback(syncEvent);
         }
-        
-        // Проверяем, предназначено ли событие для этого приложения
-        if (syncEvent.targetApps && !syncEvent.targetApps.includes(this.applicationId)) {
-          continue;
-        }
-        
-        callback(syncEvent);
+      } catch (error) {
+        logger.error('Error in sync event processing:', error instanceof Error ? error.message : 'Unknown error');
       }
     };
     
     // Запускаем обработку в фоновом режиме
     handleEvents().catch(err => {
-      logger.error('Error in sync subscription:', err);
+      logger.error('Error in sync subscription:', err instanceof Error ? err.message : 'Unknown error');
     });
     
     // Возвращаем функцию для отписки
@@ -98,7 +119,7 @@ class SyncService {
       }
       
       // Публикуем событие синхронизации
-      await this.publish(channel, operationType, {
+      await this.publish<DocumentSyncPayload>(channel, operationType, {
         documentId,
         document,
         operationType
@@ -106,7 +127,7 @@ class SyncService {
     });
     
     // Подписываемся на события синхронизации от других экземпляров
-    this.subscribe(channel, async (event) => {
+    this.subscribe<DocumentSyncPayload>(channel, async (event) => {
       const { documentId, document, operationType } = event.payload;
       
       try {
@@ -127,7 +148,7 @@ class SyncService {
             break;
         }
       } catch (error) {
-        logger.error(`Error syncing ${model.modelName}:`, error);
+        logger.error(`Error syncing ${model.modelName}:`, error instanceof Error ? error.message : 'Unknown error');
       }
     });
   }

@@ -1,38 +1,38 @@
-# Stage 1: Builder
-FROM node:18-alpine AS builder
+FROM node:16-alpine
 
+# Создаем директорию приложения
 WORKDIR /app
 
-# Копируем package.json и package-lock.json
-COPY package*.json ./
-
 # Устанавливаем зависимости
-RUN npm ci
+COPY package*.json ./
+RUN npm ci --only=production
 
 # Копируем исходный код
 COPY . .
 
-# Собираем приложение
+# Компилируем TypeScript в JavaScript
 RUN npm run build
 
-# Stage 2: Production
-FROM node:18-alpine
+# Создаем директорию для загрузок
+RUN mkdir -p /app/uploads
+RUN chmod 777 /app/uploads
 
-WORKDIR /app
+# Создаем директорию для логов
+RUN mkdir -p /app/logs
+RUN chmod 777 /app/logs
 
-# Устанавливаем зависимости только для production
-COPY package*.json ./
-RUN npm ci --only=production
+# Создаем непривилегированного пользователя
+RUN addgroup -g 1001 -S nodejs && \
+    adduser -S nodeuser -u 1001 -G nodejs
 
-# Копируем собранное приложение из builder
-COPY --from=builder /app/dist ./dist
-COPY --from=builder /app/node_modules ./node_modules
+# Устанавливаем права на директории
+RUN chown -R nodeuser:nodejs /app
 
-# Указываем порт, который будет слушать приложение
-EXPOSE 3001
+# Переключаемся на непривилегированного пользователя
+USER nodeuser
 
-# Устанавливаем переменные окружения для production
-ENV NODE_ENV=production
+# Открываем порт
+EXPOSE 3000
 
 # Запускаем приложение
-CMD ["node", "dist/index.js"] 
+CMD ["npm", "start"] 

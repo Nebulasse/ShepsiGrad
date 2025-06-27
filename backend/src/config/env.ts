@@ -51,6 +51,9 @@ export const env = {
       region: getEnv('S3_REGION', 'eu-central-1'),
       accessKey: process.env.S3_ACCESS_KEY,
       secretKey: process.env.S3_SECRET_KEY,
+      endpoint: process.env.S3_ENDPOINT,
+      accessKeyId: process.env.S3_ACCESS_KEY_ID || process.env.S3_ACCESS_KEY,
+      secretAccessKey: process.env.S3_SECRET_ACCESS_KEY || process.env.S3_SECRET_KEY,
     },
     minio: {
       endpoint: getEnv('MINIO_ENDPOINT', 'localhost'),

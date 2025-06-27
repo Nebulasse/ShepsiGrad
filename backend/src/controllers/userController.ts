@@ -3,10 +3,19 @@ import { UserModel } from '../models/User';
 import { AuthRequest } from '../middleware/auth';
 import { ValidationError } from '../utils/validation';
 import { LoggerService } from '../services/loggerService';
+import { getModuleLogger } from '../utils/logger';
+import { AuthenticatedRequest } from '../middleware/auth.middleware';
 
-export const userController = {
-    // Получение профиля текущего пользователя
-    async getProfile(req: AuthRequest, res: Response) {
+const logger = getModuleLogger('UserController');
+
+/**
+ * Контроллер для работы с пользователями
+ */
+const userController = {
+    /**
+     * Получение профиля текущего пользователя
+     */
+    getProfile: async (req: AuthenticatedRequest, res: Response) => {
         try {
             if (!req.user) {
                 return res.status(401).json({ error: 'Unauthorized' });
@@ -19,52 +28,82 @@ export const userController = {
 
             res.json(user);
         } catch (error) {
-            LoggerService.error('Error getting user profile', { error, userId: req.user?.id });
-            res.status(500).json({ error: 'Internal server error' });
+            logger.error(`Ошибка при получении профиля: ${error instanceof Error ? error.message : 'Неизвестная ошибка'}`);
+            res.status(500).json({
+                status: 'error',
+                message: 'Ошибка при получении профиля пользователя'
+            });
         }
     },
 
-    // Обновление профиля пользователя
-    async updateProfile(req: AuthRequest, res: Response) {
+    /**
+     * Обновление профиля текущего пользователя
+     */
+    updateProfile: async (req: AuthenticatedRequest, res: Response) => {
         try {
             if (!req.user) {
                 return res.status(401).json({ error: 'Unauthorized' });
             }
 
-            const { full_name, phone_number } = req.body;
-
-            const user = await UserModel.update(req.user.id, {
+            const { user_id } = req.user;
+            const {
                 full_name,
-                phone_number
+                phone_number,
+                bio,
+                notifications_enabled,
+                email_notifications_enabled
+            } = req.body;
+
+            // Обновляем профиль пользователя
+            const updatedUser = await UserModel.update(user_id, {
+                full_name,
+                phone_number,
+                bio,
+                notifications_enabled,
+                email_notifications_enabled,
+                updated_at: new Date()
             });
 
-            res.json(user);
+            res.status(200).json({
+                status: 'success',
+                message: 'Профиль успешно обновлен',
+                data: {
+                    user: updatedUser
+                }
+            });
         } catch (error) {
-            if (error instanceof ValidationError) {
-                res.status(400).json({ error: error.message });
-            } else {
-                LoggerService.error('Error updating user profile', { error, userId: req.user?.id });
-                res.status(500).json({ error: 'Internal server error' });
-            }
+            logger.error(`Ошибка при обновлении профиля: ${error instanceof Error ? error.message : 'Неизвестная ошибка'}`);
+            res.status(500).json({
+                status: 'error',
+                message: 'Ошибка при обновлении профиля пользователя'
+            });
         }
     },
 
-    async deleteProfile(req: AuthRequest, res: Response) {
+    /**
+     * Удаление профиля текущего пользователя
+     */
+    deleteProfile: async (req: AuthenticatedRequest, res: Response) => {
         try {
             if (!req.user) {
                 return res.status(401).json({ error: 'Unauthorized' });
             }
 
             await UserModel.delete(req.user.id);
-            res.json({ message: 'Profile deleted successfully' });
+            res.json({ status: 'success', message: 'Профиль успешно удален' });
         } catch (error) {
-            LoggerService.error('Error deleting user profile', { error, userId: req.user?.id });
-            res.status(500).json({ error: 'Internal server error' });
+            logger.error(`Ошибка при удалении профиля: ${error instanceof Error ? error.message : 'Неизвестная ошибка'}`);
+            res.status(500).json({
+                status: 'error',
+                message: 'Ошибка при удалении профиля пользователя'
+            });
         }
     },
 
-    // Получение списка всех пользователей (только для админов)
-    async getAllUsers(req: AuthRequest, res: Response) {
+    /**
+     * Получение списка всех пользователей (только для админа)
+     */
+    getAllUsers: async (req: AuthenticatedRequest, res: Response) => {
         try {
             if (!req.user || req.user.role !== 'admin') {
                 return res.status(403).json({ error: 'Forbidden' });
@@ -84,14 +123,20 @@ export const userController = {
             if (error) throw error;
 
             res.json({
-                users: data,
-                total: count,
-                page: Number(page),
-                limit: Number(limit)
+                status: 'success',
+                data: {
+                    users: data,
+                    total: count,
+                    page: Number(page),
+                    limit: Number(limit)
+                }
             });
         } catch (error) {
-            LoggerService.error('Error getting all users', { error, adminId: req.user?.id });
-            res.status(500).json({ error: 'Internal server error' });
+            logger.error(`Ошибка при получении списка пользователей: ${error instanceof Error ? error.message : 'Неизвестная ошибка'}`);
+            res.status(500).json({
+                status: 'error',
+                message: 'Ошибка при получении списка пользователей'
+            });
         }
     },
 
@@ -120,4 +165,6 @@ export const userController = {
             res.status(500).json({ error: 'Internal server error' });
         }
     }
-}; 
+};
+
+export default userController; 

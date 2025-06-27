@@ -1,29 +1,20 @@
 import { Router } from 'express';
-import { body } from 'express-validator';
-import { register, login, getProfile } from '../controllers/authController';
-import { auth } from '../middleware/auth';
+import { authController } from '../controllers/auth.controller';
+import { authenticate } from '../middleware/auth.middleware';
+import validateRequest from '../middleware/validation.middleware';
+import { authSchema } from '../schemas/validationSchemas';
 
 const router = Router();
 
-// Валидация для регистрации
-const registerValidation = [
-  body('email').isEmail().withMessage('Введите корректный email'),
-  body('password')
-    .isLength({ min: 6 })
-    .withMessage('Пароль должен быть не менее 6 символов'),
-  body('firstName').notEmpty().withMessage('Введите имя'),
-  body('lastName').notEmpty().withMessage('Введите фамилию')
-];
+// Публичные маршруты
+router.post('/register', validateRequest(authSchema.register), authController.register);
+router.post('/login', validateRequest(authSchema.login), authController.login);
+router.post('/refresh-token', validateRequest(authSchema.refreshToken), authController.refreshToken);
 
-// Валидация для входа
-const loginValidation = [
-  body('email').isEmail().withMessage('Введите корректный email'),
-  body('password').notEmpty().withMessage('Введите пароль')
-];
+// Защищенные маршруты
+router.post('/logout', authenticate, authController.logout);
 
-// Маршруты
-router.post('/register', registerValidation, register);
-router.post('/login', loginValidation, login);
-router.get('/profile', auth, getProfile);
+// Получение текущего пользователя
+router.get('/me', authController.getCurrentUser);
 
 export default router; 

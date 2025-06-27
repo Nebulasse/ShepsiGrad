@@ -1,7 +1,6 @@
-import winston from 'winston';
-import { env } from '../config/env';
+import winston, { format, Logger } from 'winston';
 
-// Определение уровней логирования
+// Определяем уровни логирования
 const levels = {
   error: 0,
   warn: 1,
@@ -10,57 +9,64 @@ const levels = {
   debug: 4,
 };
 
-// Определение цветов для различных уровней логирования
+// Определяем цвета для разных уровней
 const colors = {
   error: 'red',
   warn: 'yellow',
   info: 'green',
   http: 'magenta',
-  debug: 'blue',
+  debug: 'white',
 };
 
-// Добавление цветов для winston
+// Добавляем цвета в winston
 winston.addColors(colors);
 
-// Определение формата логов
-const format = winston.format.combine(
-  winston.format.timestamp({ format: 'YYYY-MM-DD HH:mm:ss:ms' }),
-  winston.format.colorize({ all: true }),
-  winston.format.printf(
-    (info: winston.Logform.TransformableInfo) => `${info.timestamp} ${info.level}: ${info.message}`,
+// Создаем формат для логов
+const logFormat = format.combine(
+  format.timestamp({ format: 'YYYY-MM-DD HH:mm:ss:ms' }),
+  format.colorize({ all: true }),
+  format.printf(
+    (info) => `${info.timestamp} ${info.level}: ${info.message}`,
   ),
 );
 
-// Создание инстанса логгера
+// Создаем транспорты для логов
+const transports = [
+  // Консольный транспорт
+  new winston.transports.Console(),
+  
+  // Транспорт для файла с ошибками
+  new winston.transports.File({
+    filename: 'logs/error.log',
+    level: 'error',
+  }),
+  
+  // Транспорт для общего лога
+  new winston.transports.File({ filename: 'logs/combined.log' }),
+];
+
+// Создаем логгер
 const logger = winston.createLogger({
-  level: env.logging.level,
+  level: process.env.NODE_ENV === 'production' ? 'info' : 'debug',
   levels,
-  format,
-  transports: [
-    new winston.transports.Console()
-  ],
+  format: logFormat,
+  transports,
 });
 
-// Экспорт логгера
-export default logger;
-
-// Вспомогательная функция для создания специфического логгера для модуля
-export const getModuleLogger = (moduleName: string) => {
+/**
+ * Получить логгер для конкретного модуля
+ * @param moduleName Имя модуля
+ * @returns Экземпляр логгера
+ */
+export const getModuleLogger = (moduleName: string): Logger => {
   return {
-    error: (message: string, meta?: any) => {
-      logger.error(`[${moduleName}] ${message}`, meta);
-    },
-    warn: (message: string, meta?: any) => {
-      logger.warn(`[${moduleName}] ${message}`, meta);
-    },
-    info: (message: string, meta?: any) => {
-      logger.info(`[${moduleName}] ${message}`, meta);
-    },
-    http: (message: string, meta?: any) => {
-      logger.http(`[${moduleName}] ${message}`, meta);
-    },
-    debug: (message: string, meta?: any) => {
-      logger.debug(`[${moduleName}] ${message}`, meta);
-    },
-  };
-}; 
+    ...logger,
+    error: (message: string) => logger.error(`[${moduleName}] ${message}`),
+    warn: (message: string) => logger.warn(`[${moduleName}] ${message}`),
+    info: (message: string) => logger.info(`[${moduleName}] ${message}`),
+    http: (message: string) => logger.http(`[${moduleName}] ${message}`),
+    debug: (message: string) => logger.debug(`[${moduleName}] ${message}`),
+  } as Logger;
+};
+
+export default logger; 

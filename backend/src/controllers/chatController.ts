@@ -5,6 +5,7 @@ import { LoggerService } from '../services/loggerService';
 import { PropertyModel } from '../models/Property';
 import { UserModel } from '../models/User';
 import { BookingModel } from '../models/Booking';
+import { socketService } from '../app';
 
 export const chatController = {
     async getUserChats(req: AuthRequest, res: Response) {
@@ -235,12 +236,48 @@ export const chatController = {
                 return res.status(401).json({ error: 'Unauthorized' });
             }
 
-            const count = await MessageModel.getUnreadCount(req.user.id);
+            const { count } = await MessageModel.getUserUnreadCount(req.user.id);
             res.json({ count });
         } catch (error) {
-            LoggerService.error('Error getting unread count', { 
+            LoggerService.error('Error getting unread count', { error, userId: req.user?.id });
+            res.status(500).json({ error: 'Internal server error' });
+        }
+    },
+
+    // Тестовый метод для проверки работы чата между приложениями
+    async testChatConnection(req: AuthRequest, res: Response) {
+        try {
+            if (!req.user) {
+                return res.status(401).json({ error: 'Unauthorized' });
+            }
+
+            const { recipientId, message } = req.body;
+
+            if (!recipientId || !message) {
+                return res.status(400).json({ error: 'Recipient ID and message are required' });
+            }
+
+            // Проверяем, существует ли получатель
+            const recipient = await UserModel.findById(recipientId);
+            if (!recipient) {
+                return res.status(404).json({ error: 'Recipient not found' });
+            }
+
+            // Отправляем сообщение через WebSocket
+            socketService.sendPrivateMessage(req.user.id, recipientId, message);
+
+            // Возвращаем успешный ответ
+            res.json({ 
+                success: true, 
+                message: 'Test message sent',
+                sender: req.user.id,
+                recipient: recipientId
+            });
+        } catch (error) {
+            LoggerService.error('Error testing chat connection', { 
                 error, 
-                userId: req.user?.id
+                userId: req.user?.id,
+                recipientId: req.body.recipientId
             });
             res.status(500).json({ error: 'Internal server error' });
         }

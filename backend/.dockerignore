@@ -60,4 +60,17 @@ Dockerfile*
 *.pid.lock
 *.swp
 *.swo
-*~ 
+*~
+
+# Дополнительные файлы
+lcov.info
+uploads
+dist
+src/_old
+src/tests
+**/*.test.ts
+**/*.spec.ts
+
+# Добавляем исключение для папки _old_backup
+_old_backup
+../_old_backup 

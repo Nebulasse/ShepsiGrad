@@ -9,14 +9,16 @@ COPY package*.json ./
 # Устанавливаем зависимости
 RUN npm install --production=false
 
-# Копируем исходный код
-COPY . .
+# Копируем только необходимые файлы (исключаем _old)
+COPY tsconfig.json ./
+COPY src/server.ts ./src/
 
 # Компилируем TypeScript в JavaScript
 RUN npm run build
 
-# Удаляем dev-зависимости
-RUN npm prune --production
+# Удаляем dev-зависимости и исходники
+RUN npm prune --production && \
+    rm -rf src/ tsconfig.json
 
 # Создаем директории
 RUN mkdir -p /app/uploads /app/logs && \

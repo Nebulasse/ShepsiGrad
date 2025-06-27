@@ -15,9 +15,11 @@
     "noImplicitAny": false,
     "strictNullChecks": false,
     "strictPropertyInitialization": false,
-    "noEmitOnError": false
+    "noEmitOnError": false,
+    "allowJs": false,
+    "checkJs": false
   },
-  "include": ["src/**/*"],
+  "include": ["src/server.ts"],
   "exclude": [
     "node_modules", 
     "dist", 
@@ -25,6 +27,8 @@
     "src/tests", 
     "**/*.test.ts", 
     "**/*.spec.ts",
-    "src/_old"
+    "src/_old",
+    "src/_old/**/*",
+    "**/_old/**/*"
   ]
 } 

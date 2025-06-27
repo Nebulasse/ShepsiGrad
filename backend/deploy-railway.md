@@ -92,7 +92,7 @@ const API_BASE_URL = "https://your-app-name.railway.app/api";
 
 ## Проверка работоспособности
 
-1. **Health check:** `https://your-app-name.railway.app/api/health`
+1. **Health check:** `https://your-app-name.railway.app/health`
 2. **API endpoint:** `https://your-app-name.railway.app/api`
 
 ## Обновления
@@ -101,10 +101,23 @@ const API_BASE_URL = "https://your-app-name.railway.app/api";
 
 ## Устранение неполадок
 
-### Проблема: Build failed
+### Проблема: Build failed - npm run build
 
-- Проверьте логи в Railway Dashboard
-- Убедитесь, что все зависимости установлены
+**Решение:** Проблема была в конфликтующих файлах TypeScript в папке `_old`.
+
+**Что было исправлено:**
+
+- ✅ Обновлен `tsconfig.json` для исключения проблемных файлов
+- ✅ Создан `.dockerignore` для исключения ненужных файлов
+- ✅ Перемещена папка `_old` в `_old_backup`
+- ✅ Обновлены Dockerfile'ы для более надежной сборки
+
+**Для локального тестирования:**
+
+```bash
+cd backend
+npm run build  # Должно работать без ошибок
+```
 
 ### Проблема: App not starting
 
@@ -115,3 +128,23 @@ const API_BASE_URL = "https://your-app-name.railway.app/api";
 
 - Проверьте CORS_ORIGIN в переменных окружения
 - Добавьте домены ваших приложений
+
+## Альтернативные Dockerfile'ы
+
+Если основной Dockerfile не работает, попробуйте:
+
+1. **Dockerfile.minimal** - минимальная версия для быстрого деплоя
+2. **Dockerfile.dev** - версия для разработки
+
+## Локальное тестирование Docker
+
+```bash
+# Тестирование сборки
+docker build -t shepsigrad-backend:test .
+
+# Тестирование запуска
+docker run -p 3001:3000 shepsigrad-backend:test
+
+# Проверка health check
+curl http://localhost:3001/health
+```

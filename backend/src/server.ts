@@ -112,7 +112,7 @@ app.use('*', (req, res) => {
 const PORT = process.env.PORT || 3000;
 
 // Улучшенная обработка запуска сервера
-server.listen(PORT, '0.0.0.0', () => {
+server.listen(PORT, () => {
   console.log(`🚀 Server running on port ${PORT}`);
   console.log(`📡 Socket.IO server ready`);
   console.log(`🌍 Environment: ${process.env.NODE_ENV || 'development'}`);

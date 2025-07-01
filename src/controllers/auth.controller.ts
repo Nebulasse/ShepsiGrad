@@ -22,11 +22,15 @@ class AuthController {
     try {
       const userData: RegisterUserData = req.body;
       const user = await authService.register(userData);
-
+      // Генерируем accessToken
+      const tokens = authService['generateTokens']({ id: user.id, role: user.role });
       return res.status(201).json({
         success: true,
         message: 'Пользователь успешно зарегистрирован',
-        data: user
+        data: {
+          user,
+          token: tokens.accessToken
+        }
       });
     } catch (error) {
       logger.error(`Ошибка при регистрации: ${error instanceof Error ? error.message : 'Неизвестная ошибка'}`);
